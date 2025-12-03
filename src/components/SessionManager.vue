@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import { useConfigStore, type SshSession } from '../stores/config'
 import { useTerminalStore } from '../stores/terminal'
 import { v4 as uuidv4 } from 'uuid'
@@ -8,6 +8,7 @@ const configStore = useConfigStore()
 const terminalStore = useTerminalStore()
 
 const showNewSession = ref(false)
+const nameInputRef = ref<HTMLInputElement | null>(null)
 
 // ESC 关闭弹窗
 const handleKeydown = (e: KeyboardEvent) => {
@@ -87,16 +88,20 @@ const resetForm = () => {
 }
 
 // 打开新建会话
-const openNewSession = () => {
+const openNewSession = async () => {
   resetForm()
   showNewSession.value = true
+  await nextTick()
+  nameInputRef.value?.focus()
 }
 
 // 打开编辑会话
-const openEditSession = (session: SshSession) => {
+const openEditSession = async (session: SshSession) => {
   editingSession.value = session
   formData.value = { ...session }
   showNewSession.value = true
+  await nextTick()
+  nameInputRef.value?.focus()
 }
 
 // 保存会话
@@ -249,7 +254,7 @@ const createLocalTerminal = () => {
         <div class="modal-body">
           <div class="form-group">
             <label class="form-label">名称 *</label>
-            <input v-model="formData.name" type="text" class="input" placeholder="例如：生产服务器" />
+            <input ref="nameInputRef" v-model="formData.name" type="text" class="input" placeholder="例如：生产服务器" />
           </div>
           <div class="form-row">
             <div class="form-group" style="flex: 2">
