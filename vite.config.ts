@@ -14,7 +14,7 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              external: ['@homebridge/node-pty-prebuilt-multiarch', 'ssh2', 'electron-store']
+              external: ['node-pty', 'ssh2', 'electron-store']
             }
           }
         }

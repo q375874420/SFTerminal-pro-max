@@ -1,4 +1,4 @@
-import * as pty from '@homebridge/node-pty-prebuilt-multiarch'
+import * as pty from 'node-pty'
 import { v4 as uuidv4 } from 'uuid'
 import * as os from 'os'
 
