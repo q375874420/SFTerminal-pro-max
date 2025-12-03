@@ -85,7 +85,9 @@ export const useConfigStore = defineStore('config', () => {
   // ==================== AI 配置 ====================
 
   async function saveAiProfiles(): Promise<void> {
-    await window.electronAPI.config.setAiProfiles(aiProfiles.value)
+    // 转换为普通对象，避免序列化错误
+    const plainProfiles = JSON.parse(JSON.stringify(aiProfiles.value))
+    await window.electronAPI.config.setAiProfiles(plainProfiles)
   }
 
   async function addAiProfile(profile: AiProfile): Promise<void> {
@@ -124,7 +126,9 @@ export const useConfigStore = defineStore('config', () => {
   // ==================== SSH 会话 ====================
 
   async function saveSshSessions(): Promise<void> {
-    await window.electronAPI.config.setSshSessions(sshSessions.value)
+    // 转换为普通对象，避免序列化错误
+    const plainSessions = JSON.parse(JSON.stringify(sshSessions.value))
+    await window.electronAPI.config.setSshSessions(plainSessions)
   }
 
   async function addSshSession(session: SshSession): Promise<void> {
