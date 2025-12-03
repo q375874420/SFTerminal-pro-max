@@ -1,11 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useTerminalStore } from '../stores/terminal'
 import Terminal from './Terminal.vue'
 
 const terminalStore = useTerminalStore()
 
-const _activeTab = computed(() => terminalStore.activeTab)
 </script>
 
 <template>

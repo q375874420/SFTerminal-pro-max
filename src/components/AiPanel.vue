@@ -63,10 +63,6 @@ const lastError = computed(() => {
   return terminalStore.activeTab?.lastError
 })
 
-// 检查是否有可发送的终端内容
-const _hasTerminalContext = computed(() => {
-  return !!terminalSelectedText.value || !!lastError.value
-})
 
 
 // 生成系统信息的提示词

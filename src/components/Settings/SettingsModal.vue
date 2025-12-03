@@ -60,8 +60,11 @@ const tabs = [
               <a href="#" class="about-link">问题反馈</a>
               <a href="#" class="about-link">开源协议</a>
             </div>
+            <p class="producer">
+              国元证券股份有限公司·金融科技创新实验室 出品
+            </p>
             <p class="copyright">
-              © 2024 旗鱼终端团队
+              © 2024 旗鱼
             </p>
           </div>
         </div>
@@ -206,6 +209,12 @@ const tabs = [
 
 .about-link:hover {
   text-decoration: underline;
+}
+
+.producer {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-bottom: 12px;
 }
 
 .copyright {

@@ -305,10 +305,6 @@ const menuClear = () => {
   hideContextMenu()
 }
 
-// 点击其他地方关闭菜单（保留以备将来使用）
-const _handleGlobalClick = () => {
-  hideContextMenu()
-}
 
 // 暴露方法供外部调用
 defineExpose({

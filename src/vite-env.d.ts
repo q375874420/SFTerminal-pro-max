@@ -48,8 +48,10 @@ interface Window {
         onChunk: (chunk: string) => void,
         onDone: () => void,
         onError: (error: string) => void,
-        profileId?: string
+        profileId?: string,
+        requestId?: string
       ) => void
+      abort: (requestId?: string) => Promise<void>
     }
     config: {
       get: (key: string) => Promise<unknown>
@@ -107,6 +109,36 @@ interface Window {
       ) => Promise<void>
       getTheme: () => Promise<string>
       setTheme: (theme: string) => Promise<void>
+    }
+    xshell: {
+      selectFiles: () => Promise<{ canceled: boolean; filePaths: string[] }>
+      selectDirectory: () => Promise<{ canceled: boolean; dirPath: string }>
+      importFiles: (filePaths: string[]) => Promise<{
+        success: boolean
+        sessions: Array<{
+          name: string
+          host: string
+          port: number
+          username: string
+          password?: string
+          privateKeyPath?: string
+          group?: string
+        }>
+        errors: string[]
+      }>
+      importDirectory: (dirPath: string) => Promise<{
+        success: boolean
+        sessions: Array<{
+          name: string
+          host: string
+          port: number
+          username: string
+          password?: string
+          privateKeyPath?: string
+          group?: string
+        }>
+        errors: string[]
+      }>
     }
   }
 }
