@@ -15,7 +15,6 @@ const showSettings = inject<() => void>('showSettings')
 import type { AiMessage } from '../stores/terminal'
 
 const inputText = ref('')
-const isLoading = ref(false)
 const messagesRef = ref<HTMLDivElement | null>(null)
 const selectedText = ref('')
 
@@ -27,6 +26,12 @@ const messages = computed(() => {
 
 // 当前终端 ID
 const currentTabId = computed(() => terminalStore.activeTabId)
+
+// 当前终端的 AI 加载状态（每个终端独立）
+const isLoading = computed(() => {
+  const activeTab = terminalStore.activeTab
+  return activeTab?.aiLoading || false
+})
 
 const hasAiConfig = computed(() => configStore.hasAiConfig)
 
@@ -120,7 +125,7 @@ const sendMessage = async () => {
   terminalStore.addAiMessage(tabId, userMessage)
   const prompt = inputText.value
   inputText.value = ''
-  isLoading.value = true
+  terminalStore.setAiLoading(tabId, true)
   await scrollToBottom()
 
   // 创建 AI 响应占位
@@ -155,17 +160,17 @@ const sendMessage = async () => {
         scrollToBottom()
       },
       () => {
-        isLoading.value = false
+        terminalStore.setAiLoading(tabId, false)
         scrollToBottom()
       },
       error => {
         terminalStore.updateAiMessage(tabId, messageIndex, `错误: ${error}`)
-        isLoading.value = false
+        terminalStore.setAiLoading(tabId, false)
       }
     )
   } catch (error) {
     terminalStore.updateAiMessage(tabId, messageIndex, `错误: ${error}`)
-    isLoading.value = false
+    terminalStore.setAiLoading(tabId, false)
   }
 }
 
@@ -181,7 +186,7 @@ const explainCommand = async (command: string) => {
     timestamp: new Date()
   }
   terminalStore.addAiMessage(tabId, userMessage)
-  isLoading.value = true
+  terminalStore.setAiLoading(tabId, true)
   await scrollToBottom()
 
   const assistantMessage: AiMessage = {
@@ -216,12 +221,12 @@ const explainCommand = async (command: string) => {
       scrollToBottom()
     },
     () => {
-      isLoading.value = false
+      terminalStore.setAiLoading(tabId, false)
       scrollToBottom()
     },
     error => {
       terminalStore.updateAiMessage(tabId, messageIndex, `错误: ${error}`)
-      isLoading.value = false
+      terminalStore.setAiLoading(tabId, false)
     }
   )
 }
@@ -238,7 +243,7 @@ const generateCommand = async (description: string) => {
     timestamp: new Date()
   }
   terminalStore.addAiMessage(tabId, userMessage)
-  isLoading.value = true
+  terminalStore.setAiLoading(tabId, true)
   await scrollToBottom()
 
   const assistantMessage: AiMessage = {
@@ -280,12 +285,12 @@ const generateCommand = async (description: string) => {
       scrollToBottom()
     },
     () => {
-      isLoading.value = false
+      terminalStore.setAiLoading(tabId, false)
       scrollToBottom()
     },
     error => {
       terminalStore.updateAiMessage(tabId, messageIndex, `错误: ${error}`)
-      isLoading.value = false
+      terminalStore.setAiLoading(tabId, false)
     }
   )
 }
@@ -300,7 +305,9 @@ const clearMessages = () => {
 // 停止生成
 const stopGeneration = async () => {
   await window.electronAPI.ai.abort()
-  isLoading.value = false
+  if (currentTabId.value) {
+    terminalStore.setAiLoading(currentTabId.value, false)
+  }
 }
 
 // 诊断错误
@@ -322,7 +329,7 @@ const diagnoseError = async () => {
     timestamp: new Date()
   }
   terminalStore.addAiMessage(tabId, userMessage)
-  isLoading.value = true
+  terminalStore.setAiLoading(tabId, true)
   await scrollToBottom()
 
   const assistantMessage: AiMessage = {
@@ -357,12 +364,12 @@ const diagnoseError = async () => {
       scrollToBottom()
     },
     () => {
-      isLoading.value = false
+      terminalStore.setAiLoading(tabId, false)
       scrollToBottom()
     },
     err => {
       terminalStore.updateAiMessage(tabId, messageIndex, `错误: ${err}`)
-      isLoading.value = false
+      terminalStore.setAiLoading(tabId, false)
     }
   )
 }
@@ -380,7 +387,7 @@ const analyzeSelection = async () => {
     timestamp: new Date()
   }
   terminalStore.addAiMessage(tabId, userMessage)
-  isLoading.value = true
+  terminalStore.setAiLoading(tabId, true)
   await scrollToBottom()
 
   const assistantMessage: AiMessage = {
@@ -415,12 +422,12 @@ const analyzeSelection = async () => {
       scrollToBottom()
     },
     () => {
-      isLoading.value = false
+      terminalStore.setAiLoading(tabId, false)
       scrollToBottom()
     },
     err => {
       terminalStore.updateAiMessage(tabId, messageIndex, `错误: ${err}`)
-      isLoading.value = false
+      terminalStore.setAiLoading(tabId, false)
     }
   )
 }
@@ -437,7 +444,7 @@ const analyzeTerminalContent = async (text: string) => {
     timestamp: new Date()
   }
   terminalStore.addAiMessage(tabId, userMessage)
-  isLoading.value = true
+  terminalStore.setAiLoading(tabId, true)
   await scrollToBottom()
 
   const assistantMessage: AiMessage = {
@@ -472,12 +479,12 @@ const analyzeTerminalContent = async (text: string) => {
       scrollToBottom()
     },
     () => {
-      isLoading.value = false
+      terminalStore.setAiLoading(tabId, false)
       scrollToBottom()
     },
     err => {
       terminalStore.updateAiMessage(tabId, messageIndex, `错误: ${err}`)
-      isLoading.value = false
+      terminalStore.setAiLoading(tabId, false)
     }
   )
 }

@@ -43,6 +43,8 @@ export interface TerminalTab {
   selectedText?: string
   // AI 对话历史（每个终端独立）
   aiMessages?: AiMessage[]
+  // AI 是否正在生成回复
+  aiLoading?: boolean
 }
 
 export interface SplitPane {
@@ -473,6 +475,16 @@ export const useTerminalStore = defineStore('terminal', () => {
     }
   }
 
+  /**
+   * 设置 AI 加载状态
+   */
+  function setAiLoading(tabId: string, loading: boolean): void {
+    const tab = tabs.value.find(t => t.id === tabId)
+    if (tab) {
+      tab.aiLoading = loading
+    }
+  }
+
   return {
     tabs,
     activeTabId,
@@ -498,7 +510,8 @@ export const useTerminalStore = defineStore('terminal', () => {
     getAiMessages,
     addAiMessage,
     updateAiMessage,
-    clearAiMessages
+    clearAiMessages,
+    setAiLoading
   }
 })
 
