@@ -62,6 +62,9 @@ export const useTerminalStore = defineStore('terminal', () => {
     tabs.value.push(tab)
     activeTabId.value = id
 
+    // 获取响应式 tab 对象的引用
+    const reactiveTab = tabs.value.find(t => t.id === id)!
+
     // 初始化终端连接
     try {
       if (type === 'local') {
@@ -69,8 +72,8 @@ export const useTerminalStore = defineStore('terminal', () => {
           cols: 80,
           rows: 24
         })
-        tab.ptyId = ptyId
-        tab.isConnected = true
+        reactiveTab.ptyId = ptyId
+        reactiveTab.isConnected = true
       } else if (type === 'ssh' && sshConfig) {
         const sshId = await window.electronAPI.ssh.connect({
           host: sshConfig.host,
@@ -81,14 +84,14 @@ export const useTerminalStore = defineStore('terminal', () => {
           cols: 80,
           rows: 24
         })
-        tab.ptyId = sshId
-        tab.isConnected = true
+        reactiveTab.ptyId = sshId
+        reactiveTab.isConnected = true
       }
     } catch (error) {
       console.error('Failed to create terminal:', error)
-      tab.isConnected = false
+      reactiveTab.isConnected = false
     } finally {
-      tab.isLoading = false
+      reactiveTab.isLoading = false
     }
 
     return id

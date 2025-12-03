@@ -58,13 +58,21 @@ onMounted(async () => {
   // 挂载到 DOM
   terminal.open(terminalRef.value)
 
-  // 适配大小
+  // 适配大小 - 使用 setTimeout 确保 DOM 完全渲染和布局完成
   await nextTick()
-  fitAddon.fit()
-
-  // 更新后端 PTY 大小
-  const { cols, rows } = terminal
-  await terminalStore.resizeTerminal(props.tabId, cols, rows)
+  setTimeout(async () => {
+    if (fitAddon && terminal && terminalRef.value) {
+      // 检查容器是否有有效尺寸
+      const rect = terminalRef.value.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) {
+        fitAddon.fit()
+        // 更新后端 PTY 大小
+        const { cols, rows } = terminal
+        await terminalStore.resizeTerminal(props.tabId, cols, rows)
+        terminal.focus()
+      }
+    }
+  }, 100)
 
   // 监听用户输入
   terminal.onData(data => {
@@ -111,13 +119,21 @@ onUnmounted(() => {
 watch(
   () => props.isActive,
   async active => {
-    if (active && terminal && fitAddon) {
+    if (active && terminal && fitAddon && terminalRef.value) {
       await nextTick()
-      fitAddon.fit()
-      terminal.focus()
-      await terminalStore.resizeTerminal(props.tabId, terminal.cols, terminal.rows)
+      setTimeout(() => {
+        if (fitAddon && terminal && terminalRef.value) {
+          const rect = terminalRef.value.getBoundingClientRect()
+          if (rect.width > 0 && rect.height > 0) {
+            fitAddon.fit()
+            terminal.focus()
+            terminalStore.resizeTerminal(props.tabId, terminal.cols, terminal.rows)
+          }
+        }
+      }, 50)
     }
-  }
+  },
+  { immediate: true }
 )
 
 // 监听主题变化
