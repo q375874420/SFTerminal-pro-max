@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, Menu } from 'electron'
 import { join } from 'path'
 import { PtyService } from './services/pty.service'
 import { SshService } from './services/ssh.service'
@@ -71,6 +71,9 @@ function createWindow() {
 
 // 应用准备就绪
 app.whenReady().then(() => {
+  // 移除默认菜单栏
+  Menu.setApplicationMenu(null)
+  
   createWindow()
 
   app.on('activate', () => {
