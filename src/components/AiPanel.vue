@@ -55,12 +55,15 @@ const sendMessage = async () => {
   const assistantMessage: ChatMessage = {
     id: (Date.now() + 1).toString(),
     role: 'assistant',
-    content: '',
+    content: '思考中...',
     timestamp: new Date()
   }
   messages.value.push(assistantMessage)
+  const messageIndex = messages.value.length - 1
+  await scrollToBottom()
 
   try {
+    let firstChunk = true
     // 使用流式响应
     window.electronAPI.ai.chatStream(
       [
@@ -72,19 +75,25 @@ const sendMessage = async () => {
         { role: 'user', content: prompt }
       ],
       chunk => {
-        assistantMessage.content += chunk
+        if (firstChunk) {
+          messages.value[messageIndex].content = chunk
+          firstChunk = false
+        } else {
+          messages.value[messageIndex].content += chunk
+        }
         scrollToBottom()
       },
       () => {
         isLoading.value = false
+        scrollToBottom()
       },
       error => {
-        assistantMessage.content = `错误: ${error}`
+        messages.value[messageIndex].content = `错误: ${error}`
         isLoading.value = false
       }
     )
   } catch (error) {
-    assistantMessage.content = `错误: ${error}`
+    messages.value[messageIndex].content = `错误: ${error}`
     isLoading.value = false
   }
 }
@@ -107,11 +116,14 @@ const explainCommand = async (command: string) => {
   const assistantMessage: ChatMessage = {
     id: (Date.now() + 1).toString(),
     role: 'assistant',
-    content: '',
+    content: '分析中...',
     timestamp: new Date()
   }
   messages.value.push(assistantMessage)
+  const messageIndex = messages.value.length - 1
+  await scrollToBottom()
 
+  let firstChunk = true
   window.electronAPI.ai.chatStream(
     [
       {
@@ -122,14 +134,20 @@ const explainCommand = async (command: string) => {
       { role: 'user', content: `请解释这个命令：\n\`\`\`\n${command}\n\`\`\`` }
     ],
     chunk => {
-      assistantMessage.content += chunk
+      if (firstChunk) {
+        messages.value[messageIndex].content = chunk
+        firstChunk = false
+      } else {
+        messages.value[messageIndex].content += chunk
+      }
       scrollToBottom()
     },
     () => {
       isLoading.value = false
+      scrollToBottom()
     },
     error => {
-      assistantMessage.content = `错误: ${error}`
+      messages.value[messageIndex].content = `错误: ${error}`
       isLoading.value = false
     }
   )
@@ -152,11 +170,14 @@ const generateCommand = async (description: string) => {
   const assistantMessage: ChatMessage = {
     id: (Date.now() + 1).toString(),
     role: 'assistant',
-    content: '',
+    content: '生成中...',
     timestamp: new Date()
   }
   messages.value.push(assistantMessage)
+  const messageIndex = messages.value.length - 1
+  await scrollToBottom()
 
+  let firstChunk = true
   window.electronAPI.ai.chatStream(
     [
       {
@@ -166,14 +187,20 @@ const generateCommand = async (description: string) => {
       { role: 'user', content: description }
     ],
     chunk => {
-      assistantMessage.content += chunk
+      if (firstChunk) {
+        messages.value[messageIndex].content = chunk
+        firstChunk = false
+      } else {
+        messages.value[messageIndex].content += chunk
+      }
       scrollToBottom()
     },
     () => {
       isLoading.value = false
+      scrollToBottom()
     },
     error => {
-      assistantMessage.content = `错误: ${error}`
+      messages.value[messageIndex].content = `错误: ${error}`
       isLoading.value = false
     }
   )
@@ -182,6 +209,80 @@ const generateCommand = async (description: string) => {
 // 清空对话
 const clearMessages = () => {
   messages.value = []
+}
+
+// 复制消息
+const copyMessage = async (content: string) => {
+  try {
+    await navigator.clipboard.writeText(content)
+    // 可以添加一个提示
+  } catch (error) {
+    console.error('复制失败:', error)
+  }
+}
+
+// 渲染 Markdown 格式
+const renderMarkdown = (text: string): string => {
+  if (!text) return ''
+  
+  // 转义 HTML 特殊字符
+  const escapeHtml = (str: string) => {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;')
+  }
+  
+  // 先保存代码块，用占位符替换
+  const codeBlocks: string[] = []
+  let result = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (match, lang, code) => {
+    const language = lang || 'text'
+    const trimmedCode = code.trim()
+    // 对代码内容做base64编码避免onclick中的特殊字符问题
+    const encodedCode = btoa(unescape(encodeURIComponent(trimmedCode)))
+    const placeholder = `___CODE_BLOCK_${codeBlocks.length}___`
+    codeBlocks.push(`<div class="code-block">
+      <div class="code-header">
+        <span>${language}</span>
+        <button class="code-copy-btn" onclick="copyCode('${encodedCode}')" title="复制代码">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+        </button>
+      </div>
+      <pre><code>${escapeHtml(trimmedCode)}</code></pre>
+    </div>`)
+    return placeholder
+  })
+  
+  // 转义剩余文本
+  result = escapeHtml(result)
+  
+  // 处理行内代码 `code`
+  result = result.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+  
+  // 处理换行
+  result = result.replace(/\n/g, '<br>')
+  
+  // 还原代码块
+  codeBlocks.forEach((block, index) => {
+    result = result.replace(`___CODE_BLOCK_${index}___`, block)
+  })
+  
+  return result
+}
+
+// 暴露到window对象供HTML中的onclick使用
+;(window as any).copyCode = async (encodedCode: string) => {
+  try {
+    const code = decodeURIComponent(escape(atob(encodedCode)))
+    await navigator.clipboard.writeText(code)
+  } catch (error) {
+    console.error('复制代码失败:', error)
+  }
 }
 
 // 快捷操作
@@ -257,16 +358,22 @@ const quickActions = [
           class="message"
           :class="msg.role"
         >
-          <div class="message-content">
-            <pre v-if="msg.role === 'assistant'">{{ msg.content }}</pre>
-            <span v-else>{{ msg.content }}</span>
-          </div>
-        </div>
-        <div v-if="isLoading" class="message assistant loading">
-          <div class="typing-indicator">
-            <span></span>
-            <span></span>
-            <span></span>
+          <div class="message-wrapper">
+            <div class="message-content">
+              <div v-if="msg.role === 'assistant'" v-html="renderMarkdown(msg.content)" class="markdown-content"></div>
+              <span v-else>{{ msg.content }}</span>
+            </div>
+            <button
+              v-if="msg.role === 'assistant' && msg.content && !msg.content.includes('中...')"
+              class="copy-btn"
+              @click="copyMessage(msg.content)"
+              title="复制"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </svg>
+            </button>
           </div>
         </div>
       </div>
@@ -368,6 +475,7 @@ const quickActions = [
   flex: 1;
   overflow-y: auto;
   padding: 12px;
+  user-select: text;
 }
 
 .ai-welcome {
@@ -391,24 +499,42 @@ const quickActions = [
   justify-content: flex-end;
 }
 
+.message.assistant {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.message-wrapper {
+  position: relative;
+  max-width: 85%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .message.user .message-content {
   background: var(--accent-primary);
   color: var(--bg-primary);
   border-radius: 12px 12px 4px 12px;
+  user-select: text;
+  cursor: text;
 }
 
 .message.assistant .message-content {
   background: var(--bg-surface);
   color: var(--text-primary);
   border-radius: 12px 12px 12px 4px;
+  user-select: text;
+  cursor: text;
 }
 
 .message-content {
-  max-width: 85%;
   padding: 10px 14px;
   font-size: 13px;
   line-height: 1.5;
   word-wrap: break-word;
+  user-select: text;
+  cursor: text;
 }
 
 .message-content pre {
@@ -416,39 +542,101 @@ const quickActions = [
   font-family: var(--font-mono);
   font-size: 12px;
   white-space: pre-wrap;
+  user-select: text;
+  cursor: text;
 }
 
-.typing-indicator {
+.markdown-content {
+  width: 100%;
+}
+
+/* 代码块样式 */
+.code-block {
+  margin: 8px 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+}
+
+.code-header {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+}
+
+.code-copy-btn {
+  padding: 2px 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+}
+
+.code-copy-btn:hover {
+  color: var(--accent-primary);
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.code-block pre {
+  margin: 0;
+  padding: 12px;
+  overflow-x: auto;
+  background: var(--bg-primary);
+}
+
+.code-block code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+/* 行内代码样式 */
+.inline-code {
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  color: var(--accent-primary);
+}
+
+.copy-btn {
+  align-self: flex-start;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
   gap: 4px;
-  padding: 12px 14px;
 }
 
-.typing-indicator span {
-  width: 6px;
-  height: 6px;
-  background: var(--text-muted);
-  border-radius: 50%;
-  animation: typing 1.4s infinite both;
-}
-
-.typing-indicator span:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.typing-indicator span:nth-child(3) {
-  animation-delay: 0.4s;
-}
-
-@keyframes typing {
-  0%, 60%, 100% {
-    transform: translateY(0);
-    opacity: 0.4;
-  }
-  30% {
-    transform: translateY(-4px);
-    opacity: 1;
-  }
+.copy-btn:hover {
+  opacity: 1;
+  background: var(--bg-hover);
+  color: var(--accent-primary);
 }
 
 .ai-input {
