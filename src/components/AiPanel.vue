@@ -551,6 +551,7 @@ const quickActions = [
   overflow: hidden;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
+  width: 100%;
 }
 
 .code-header {
@@ -591,6 +592,7 @@ const quickActions = [
   padding: 12px;
   overflow-x: auto;
   background: var(--bg-primary);
+  white-space: pre;
 }
 
 .code-block code {
@@ -598,6 +600,8 @@ const quickActions = [
   font-size: 12px;
   line-height: 1.5;
   color: var(--text-primary);
+  white-space: pre;
+  display: block;
 }
 
 /* 行内代码样式 */
