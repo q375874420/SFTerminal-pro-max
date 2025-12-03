@@ -66,6 +66,8 @@ export const useTerminalStore = defineStore('terminal', () => {
   // 终端计数器（用于生成唯一标题）
   const localTerminalCounter = ref(0)
   const sshTerminalCounters = ref<Record<string, number>>({})
+  // 需要获得焦点的终端 ID（用于从 AI 助手发送代码后自动聚焦）
+  const pendingFocusTabId = ref<string>('')
 
   // 计算属性
   const activeTab = computed(() => tabs.value.find(t => t.id === activeTabId.value))
@@ -485,6 +487,20 @@ export const useTerminalStore = defineStore('terminal', () => {
     }
   }
 
+  /**
+   * 请求终端获得焦点
+   */
+  function focusTerminal(tabId?: string): void {
+    pendingFocusTabId.value = tabId || activeTabId.value
+  }
+
+  /**
+   * 清除焦点请求
+   */
+  function clearPendingFocus(): void {
+    pendingFocusTabId.value = ''
+  }
+
   return {
     tabs,
     activeTabId,
@@ -492,6 +508,7 @@ export const useTerminalStore = defineStore('terminal', () => {
     tabCount,
     splitLayout,
     pendingAiText,
+    pendingFocusTabId,
     createTab,
     closeTab,
     setActiveTab,
@@ -511,7 +528,9 @@ export const useTerminalStore = defineStore('terminal', () => {
     addAiMessage,
     updateAiMessage,
     clearAiMessages,
-    setAiLoading
+    setAiLoading,
+    focusTerminal,
+    clearPendingFocus
   }
 })
 

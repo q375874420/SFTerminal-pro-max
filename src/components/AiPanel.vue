@@ -590,6 +590,8 @@ const renderMarkdown = (text: string): string => {
     if (activeTab?.ptyId) {
       // 发送代码到终端（不自动添加回车，让用户确认后再执行）
       await terminalStore.writeToTerminal(activeTab.id, code)
+      // 自动让终端获得焦点，方便用户按回车执行
+      terminalStore.focusTerminal(activeTab.id)
     }
   } catch (error) {
     console.error('发送到终端失败:', error)

@@ -239,6 +239,19 @@ watch(
   }
 )
 
+// 监听焦点请求（从 AI 助手发送代码到终端后自动聚焦）
+watch(
+  () => terminalStore.pendingFocusTabId,
+  (focusTabId) => {
+    if (focusTabId === props.tabId && terminal) {
+      nextTick(() => {
+        terminal?.focus()
+        terminalStore.clearPendingFocus()
+      })
+    }
+  }
+)
+
 // 右键菜单处理
 const handleContextMenu = (event: MouseEvent) => {
   event.preventDefault()
