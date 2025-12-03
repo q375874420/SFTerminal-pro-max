@@ -14,7 +14,6 @@ const configStore = useConfigStore()
 const showSidebar = ref(false)
 const showAiPanel = ref(false)
 const showSettings = ref(false)
-const sidebarTab = ref<'sessions' | 'history'>('sessions')
 
 // AI 面板宽度
 const aiPanelWidth = ref(360)
@@ -124,29 +123,19 @@ onUnmounted(() => {
 
     <!-- 主体内容 -->
     <div class="app-body">
-      <!-- 左侧边栏 -->
+      <!-- 左侧边栏 - 主机管理 -->
       <aside v-show="showSidebar" class="sidebar">
-        <div class="sidebar-tabs">
-          <button
-            class="sidebar-tab"
-            :class="{ active: sidebarTab === 'sessions' }"
-            @click="sidebarTab = 'sessions'"
-          >
-            会话
-          </button>
-          <button
-            class="sidebar-tab"
-            :class="{ active: sidebarTab === 'history' }"
-            @click="sidebarTab = 'history'"
-          >
-            历史
+        <div class="sidebar-header">
+          <span>主机管理</span>
+          <button class="btn-icon btn-sm" @click="showSidebar = false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
           </button>
         </div>
         <div class="sidebar-content">
-          <SessionManager v-if="sidebarTab === 'sessions'" />
-          <div v-else class="history-list">
-            <p class="empty-tip">暂无历史记录</p>
-          </div>
+          <SessionManager />
         </div>
       </aside>
 
@@ -232,30 +221,15 @@ onUnmounted(() => {
   flex-direction: column;
 }
 
-.sidebar-tabs {
+.sidebar-header {
   display: flex;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.sidebar-tab {
-  flex: 1;
-  padding: 10px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.sidebar-tab:hover {
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--text-primary);
-  background: var(--bg-hover);
-}
-
-.sidebar-tab.active {
-  color: var(--accent-primary);
-  border-bottom: 2px solid var(--accent-primary);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .sidebar-content {
@@ -296,12 +270,5 @@ onUnmounted(() => {
   background: var(--accent-primary);
 }
 
-/* 空提示 */
-.empty-tip {
-  padding: 20px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
-}
 </style>
 

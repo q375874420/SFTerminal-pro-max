@@ -1,4 +1,5 @@
 import Store from 'electron-store'
+import { safeStorage } from 'electron'
 
 export interface AiProfile {
   id: string
@@ -64,9 +65,23 @@ export class ConfigService {
   private store: Store<StoreSchema>
 
   constructor() {
+    // 使用 safeStorage 生成加密密钥
+    let encryptionKey: string | undefined
+    
+    try {
+      if (safeStorage.isEncryptionAvailable()) {
+        // 使用固定标识符生成一致的加密密钥
+        const keyBuffer = safeStorage.encryptString('qiyu-terminal-encryption-key-v1')
+        encryptionKey = keyBuffer.toString('hex').substring(0, 32) // 取前32字符作为密钥
+      }
+    } catch (e) {
+      console.warn('safeStorage not available, using unencrypted storage')
+    }
+
     this.store = new Store<StoreSchema>({
       name: 'qiyu-terminal-config',
-      defaults: defaultConfig
+      defaults: defaultConfig,
+      encryptionKey // 启用加密存储
     })
   }
 
