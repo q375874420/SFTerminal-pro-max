@@ -64,7 +64,7 @@ const lastError = computed(() => {
 })
 
 // 检查是否有可发送的终端内容
-const hasTerminalContext = computed(() => {
+const _hasTerminalContext = computed(() => {
   return !!terminalSelectedText.value || !!lastError.value
 })
 

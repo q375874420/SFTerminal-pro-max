@@ -95,7 +95,7 @@ onMounted(async () => {
   terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
     // Ctrl+C 复制选中内容
     if ((event.ctrlKey || event.metaKey) && event.key === 'c' && event.type === 'keydown') {
-      const selection = terminal.getSelection()
+      const selection = terminal?.getSelection()
       if (selection) {
         navigator.clipboard.writeText(selection)
         return false // 阻止默认行为（不发送 SIGINT）
@@ -305,8 +305,8 @@ const menuClear = () => {
   hideContextMenu()
 }
 
-// 点击其他地方关闭菜单
-const handleGlobalClick = () => {
+// 点击其他地方关闭菜单（保留以备将来使用）
+const _handleGlobalClick = () => {
   hideContextMenu()
 }
 

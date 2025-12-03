@@ -5,7 +5,7 @@ import Terminal from './Terminal.vue'
 
 const terminalStore = useTerminalStore()
 
-const activeTab = computed(() => terminalStore.activeTab)
+const _activeTab = computed(() => terminalStore.activeTab)
 </script>
 
 <template>

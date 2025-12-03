@@ -10,7 +10,7 @@ const dragOverIndex = ref<number | null>(null)
 
 // 新建终端下拉菜单
 const showNewMenu = ref(false)
-const dropdownRef = ref<HTMLElement | null>(null)
+const _dropdownRef = ref<HTMLElement | null>(null)
 const menuPosition = ref({ top: '0px', left: '0px' })
 
 // 检测操作系统

@@ -52,7 +52,7 @@ watch(() => terminalStore.pendingAiText, (text) => {
 })
 
 // AI 面板拖拽调整宽度
-const startResize = (e: MouseEvent) => {
+const startResize = (_e: MouseEvent) => {
   isResizing.value = true
   document.addEventListener('mousemove', handleResize)
   document.addEventListener('mouseup', stopResize)
