@@ -12,7 +12,7 @@ const terminalStore = useTerminalStore()
 const configStore = useConfigStore()
 
 const showSidebar = ref(false)
-const showAiPanel = ref(false)
+const showAiPanel = ref(true)
 const showSettings = ref(false)
 
 // AI 面板宽度
