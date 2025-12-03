@@ -627,141 +627,144 @@ const quickActions = [
 }
 
 /* 代码块样式 */
-.code-block {
-  margin: 8px 0;
-  border-radius: 6px;
+/* 代码块样式 - 使用 :deep() 穿透 v-html */
+.markdown-content :deep(.code-block) {
+  margin: 12px 0;
+  border-radius: 8px;
   overflow: hidden;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
+  background: #1a1b26;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   width: 100%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-.code-header {
+.markdown-content :deep(.code-header) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 12px;
+  padding: 8px 14px;
   font-size: 11px;
   font-weight: 500;
-  color: var(--text-muted);
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border-color);
+  color: #7aa2f7;
+  background: #16161e;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   text-transform: uppercase;
   font-family: var(--font-mono);
+  letter-spacing: 0.5px;
 }
 
-.code-copy-btn {
-  padding: 2px 6px;
+.markdown-content :deep(.code-copy-btn) {
+  padding: 4px 8px;
   font-size: 11px;
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 3px;
+  color: #565f89;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s ease;
   display: flex;
   align-items: center;
 }
 
-.code-copy-btn:hover {
-  color: var(--accent-primary);
-  background: var(--bg-hover);
-  border-color: var(--accent-primary);
+.markdown-content :deep(.code-copy-btn:hover) {
+  color: #7aa2f7;
+  background: rgba(122, 162, 247, 0.15);
+  border-color: #7aa2f7;
 }
 
-.code-block pre {
+.markdown-content :deep(.code-block pre) {
   margin: 0;
-  padding: 12px;
+  padding: 14px 16px;
   overflow-x: auto;
-  background: var(--bg-primary);
+  background: #1a1b26;
   white-space: pre;
 }
 
-.code-block code {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-primary);
+.markdown-content :deep(.code-block code) {
+  font-family: 'Fira Code', 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #a9b1d6;
   white-space: pre;
   display: block;
 }
 
 /* 行内代码样式 */
-.inline-code {
+.markdown-content :deep(.inline-code) {
   padding: 2px 6px;
   font-family: var(--font-mono);
   font-size: 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: 3px;
-  color: var(--accent-primary);
+  background: rgba(122, 162, 247, 0.15);
+  border: 1px solid rgba(122, 162, 247, 0.3);
+  border-radius: 4px;
+  color: #7aa2f7;
 }
 
-/* Markdown 样式 */
+/* Markdown 样式 - 使用 :deep() 穿透 v-html */
 .markdown-content {
   line-height: 1.6;
 }
 
-.markdown-content p {
+.markdown-content :deep(p) {
   margin: 0 0 8px;
 }
 
-.markdown-content p:last-child {
+.markdown-content :deep(p:last-child) {
   margin-bottom: 0;
 }
 
-.markdown-content strong {
+.markdown-content :deep(strong) {
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.markdown-content em {
+.markdown-content :deep(em) {
   font-style: italic;
 }
 
-.markdown-content h1,
-.markdown-content h2 {
+.markdown-content :deep(h1),
+.markdown-content :deep(h2) {
   font-size: 16px;
   font-weight: 600;
   margin: 12px 0 8px;
   color: var(--text-primary);
 }
 
-.markdown-content h3 {
+.markdown-content :deep(h3) {
   font-size: 14px;
   font-weight: 600;
   margin: 10px 0 6px;
   color: var(--text-primary);
 }
 
-.markdown-content h4,
-.markdown-content h5,
-.markdown-content h6 {
+.markdown-content :deep(h4),
+.markdown-content :deep(h5),
+.markdown-content :deep(h6) {
   font-size: 13px;
   font-weight: 600;
   margin: 8px 0 4px;
   color: var(--text-primary);
 }
 
-.markdown-content ul,
-.markdown-content ol {
+.markdown-content :deep(ul),
+.markdown-content :deep(ol) {
   margin: 8px 0;
   padding-left: 20px;
 }
 
-.markdown-content li {
+.markdown-content :deep(li) {
   margin: 4px 0;
 }
 
-.markdown-content ul li {
+.markdown-content :deep(ul li) {
   list-style-type: disc;
 }
 
-.markdown-content ol li {
+.markdown-content :deep(ol li) {
   list-style-type: decimal;
 }
 
-.markdown-content blockquote {
+.markdown-content :deep(blockquote) {
   margin: 8px 0;
   padding: 8px 12px;
   border-left: 3px solid var(--accent-primary);
@@ -769,35 +772,35 @@ const quickActions = [
   color: var(--text-secondary);
 }
 
-.markdown-content a {
+.markdown-content :deep(a) {
   color: var(--accent-primary);
   text-decoration: none;
 }
 
-.markdown-content a:hover {
+.markdown-content :deep(a:hover) {
   text-decoration: underline;
 }
 
-.markdown-content hr {
+.markdown-content :deep(hr) {
   border: none;
   border-top: 1px solid var(--border-color);
   margin: 12px 0;
 }
 
-.markdown-content table {
+.markdown-content :deep(table) {
   border-collapse: collapse;
   margin: 8px 0;
   width: 100%;
 }
 
-.markdown-content th,
-.markdown-content td {
+.markdown-content :deep(th),
+.markdown-content :deep(td) {
   border: 1px solid var(--border-color);
   padding: 6px 10px;
   text-align: left;
 }
 
-.markdown-content th {
+.markdown-content :deep(th) {
   background: var(--bg-tertiary);
   font-weight: 600;
 }
