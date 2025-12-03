@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useConfigStore, type SshSession } from '../stores/config'
 import { useTerminalStore } from '../stores/terminal'
 import { v4 as uuidv4 } from 'uuid'
@@ -8,6 +8,27 @@ const configStore = useConfigStore()
 const terminalStore = useTerminalStore()
 
 const showNewSession = ref(false)
+
+// ESC 关闭弹窗
+const handleKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && showNewSession.value) {
+    showNewSession.value = false
+    resetForm()
+  }
+}
+
+// 监听弹窗状态，添加/移除键盘事件
+watch(showNewSession, (isOpen) => {
+  if (isOpen) {
+    document.addEventListener('keydown', handleKeydown)
+  } else {
+    document.removeEventListener('keydown', handleKeydown)
+  }
+})
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown)
+})
 const editingSession = ref<SshSession | null>(null)
 const searchText = ref('')
 
