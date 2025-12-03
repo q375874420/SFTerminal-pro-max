@@ -1,0 +1,237 @@
+<script setup lang="ts">
+import { ref, onMounted, provide } from 'vue'
+import { useTerminalStore } from './stores/terminal'
+import { useConfigStore } from './stores/config'
+import TabBar from './components/TabBar.vue'
+import TerminalContainer from './components/TerminalContainer.vue'
+import AiPanel from './components/AiPanel.vue'
+import SessionManager from './components/SessionManager.vue'
+import SettingsModal from './components/Settings/SettingsModal.vue'
+
+const terminalStore = useTerminalStore()
+const configStore = useConfigStore()
+
+const showSidebar = ref(false)
+const showAiPanel = ref(false)
+const showSettings = ref(false)
+const sidebarTab = ref<'sessions' | 'history'>('sessions')
+
+// 提供给子组件
+provide('showSettings', () => {
+  showSettings.value = true
+})
+
+onMounted(async () => {
+  // 加载配置
+  await configStore.loadConfig()
+
+  // 创建初始终端标签页
+  await terminalStore.createTab('local')
+})
+
+// 切换侧边栏
+const toggleSidebar = () => {
+  showSidebar.value = !showSidebar.value
+}
+
+// 切换 AI 面板
+const toggleAiPanel = () => {
+  showAiPanel.value = !showAiPanel.value
+}
+</script>
+
+<template>
+  <div class="app-container" :class="{ 'sidebar-open': showSidebar, 'ai-open': showAiPanel }">
+    <!-- 顶部工具栏 -->
+    <header class="app-header">
+      <div class="header-left">
+        <button class="btn-icon" @click="toggleSidebar" data-tooltip="会话管理">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="14" width="7" height="7" rx="1"/>
+            <rect x="3" y="14" width="7" height="7" rx="1"/>
+          </svg>
+        </button>
+        <span class="app-title">旗鱼终端</span>
+      </div>
+      <div class="header-center">
+        <TabBar />
+      </div>
+      <div class="header-right">
+        <button class="btn-icon" @click="toggleAiPanel" data-tooltip="AI 助手">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/>
+            <circle cx="7.5" cy="14.5" r="1.5"/>
+            <circle cx="16.5" cy="14.5" r="1.5"/>
+          </svg>
+        </button>
+        <button class="btn-icon" @click="showSettings = true" data-tooltip="设置">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- 主体内容 -->
+    <div class="app-body">
+      <!-- 左侧边栏 -->
+      <aside v-show="showSidebar" class="sidebar">
+        <div class="sidebar-tabs">
+          <button
+            class="sidebar-tab"
+            :class="{ active: sidebarTab === 'sessions' }"
+            @click="sidebarTab = 'sessions'"
+          >
+            会话
+          </button>
+          <button
+            class="sidebar-tab"
+            :class="{ active: sidebarTab === 'history' }"
+            @click="sidebarTab = 'history'"
+          >
+            历史
+          </button>
+        </div>
+        <div class="sidebar-content">
+          <SessionManager v-if="sidebarTab === 'sessions'" />
+          <div v-else class="history-list">
+            <p class="empty-tip">暂无历史记录</p>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 终端区域 -->
+      <main class="terminal-area">
+        <TerminalContainer />
+      </main>
+
+      <!-- AI 面板 -->
+      <aside v-show="showAiPanel" class="ai-sidebar">
+        <AiPanel @close="showAiPanel = false" />
+      </aside>
+    </div>
+
+    <!-- 设置弹窗 -->
+    <SettingsModal v-if="showSettings" @close="showSettings = false" />
+  </div>
+</template>
+
+<style scoped>
+.app-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: var(--bg-primary);
+}
+
+/* 顶部工具栏 */
+.app-header {
+  display: flex;
+  align-items: center;
+  height: var(--header-height);
+  padding: 0 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  -webkit-app-region: drag;
+}
+
+.header-left,
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.header-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  -webkit-app-region: no-drag;
+}
+
+.app-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-left: 8px;
+}
+
+/* 主体 */
+.app-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 侧边栏 */
+.sidebar {
+  width: var(--sidebar-width);
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.sidebar-tab {
+  flex: 1;
+  padding: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sidebar-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.sidebar-tab.active {
+  color: var(--accent-primary);
+  border-bottom: 2px solid var(--accent-primary);
+}
+
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* 终端区域 */
+.terminal-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* AI 侧边栏 */
+.ai-sidebar {
+  width: 360px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+}
+
+/* 空提示 */
+.empty-tip {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+</style>
+

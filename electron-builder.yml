@@ -1,0 +1,43 @@
+appId: com.qiyu.terminal
+productName: 旗鱼终端
+directories:
+  buildResources: resources
+  output: release
+files:
+  - dist
+  - dist-electron
+  - node_modules/@homebridge/node-pty-prebuilt-multiarch/**/*
+  - node_modules/ssh2/**/*
+  - node_modules/electron-store/**/*
+asarUnpack:
+  - node_modules/@homebridge/node-pty-prebuilt-multiarch/**/*
+win:
+  icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 旗鱼终端
+mac:
+  icon: resources/icon.icns
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+linux:
+  icon: resources
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  category: Development
+
