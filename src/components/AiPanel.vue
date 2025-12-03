@@ -30,6 +30,15 @@ const currentTabId = computed(() => terminalStore.activeTabId)
 
 const hasAiConfig = computed(() => configStore.hasAiConfig)
 
+// AI 配置列表和当前选中的配置
+const aiProfiles = computed(() => configStore.aiProfiles)
+const activeAiProfile = computed(() => configStore.activeAiProfile)
+
+// 切换 AI 配置
+const changeAiProfile = async (profileId: string) => {
+  await configStore.setActiveAiProfile(profileId)
+}
+
 // 获取当前终端的系统信息
 const currentSystemInfo = computed(() => {
   const activeTab = terminalStore.activeTab
@@ -575,6 +584,17 @@ const quickActions = [
     <div class="ai-header">
       <h3>AI 助手</h3>
       <div class="ai-header-actions">
+        <!-- 模型选择 -->
+        <select 
+          v-if="aiProfiles.length > 0"
+          class="model-select"
+          :value="activeAiProfile?.id || ''"
+          @change="changeAiProfile(($event.target as HTMLSelectElement).value)"
+        >
+          <option v-for="profile in aiProfiles" :key="profile.id" :value="profile.id">
+            {{ profile.name }} ({{ profile.model }})
+          </option>
+        </select>
         <button class="btn-icon" @click="clearMessages" data-tooltip="清空对话">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="3 6 5 6 21 6"/>
@@ -739,7 +759,29 @@ const quickActions = [
 
 .ai-header-actions {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-select {
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  max-width: 160px;
+  outline: none;
+}
+
+.model-select:hover {
+  border-color: var(--accent-primary);
+}
+
+.model-select:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(0, 150, 255, 0.2);
 }
 
 .ai-no-config {
