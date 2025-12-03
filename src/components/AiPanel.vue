@@ -36,6 +36,21 @@ const currentSystemInfo = computed(() => {
   return null
 })
 
+// 获取当前终端选中的文本
+const terminalSelectedText = computed(() => {
+  return terminalStore.activeTab?.selectedText || ''
+})
+
+// 获取最近的错误
+const lastError = computed(() => {
+  return terminalStore.activeTab?.lastError
+})
+
+// 检查是否有可发送的终端内容
+const hasTerminalContext = computed(() => {
+  return !!terminalSelectedText.value || !!lastError.value
+})
+
 // 生成系统信息的提示词
 const getSystemPrompt = () => {
   const info = currentSystemInfo.value
@@ -265,6 +280,127 @@ const clearMessages = () => {
   messages.value = []
 }
 
+// 诊断错误
+const diagnoseError = async () => {
+  const error = lastError.value
+  if (!error || isLoading.value) return
+
+  // 清除错误提示
+  if (terminalStore.activeTab) {
+    terminalStore.clearError(terminalStore.activeTab.id)
+  }
+
+  const userMessage: ChatMessage = {
+    id: Date.now().toString(),
+    role: 'user',
+    content: `请帮我分析这个错误：\n\`\`\`\n${error.content}\n\`\`\``
+  ,
+    timestamp: new Date()
+  }
+  messages.value.push(userMessage)
+  isLoading.value = true
+  await scrollToBottom()
+
+  const assistantMessage: ChatMessage = {
+    id: (Date.now() + 1).toString(),
+    role: 'assistant',
+    content: '诊断中...',
+    timestamp: new Date()
+  }
+  messages.value.push(assistantMessage)
+  const messageIndex = messages.value.length - 1
+  await scrollToBottom()
+
+  const info = currentSystemInfo.value
+  const osContext = info ? `当前用户使用的是 ${info.os === 'windows' ? 'Windows' : info.os === 'macos' ? 'macOS' : 'Linux'} 系统，Shell 类型是 ${info.shell}。` : ''
+
+  let firstChunk = true
+  window.electronAPI.ai.chatStream(
+    [
+      {
+        role: 'system',
+        content: `你是一个专业的运维工程师助手。${osContext}用户会给你一个错误信息，请用中文分析错误原因，并提供可能的解决方案。`
+      },
+      { role: 'user', content: `请分析这个错误并提供解决方案：\n\`\`\`\n${error.content}\n\`\`\`` }
+    ],
+    chunk => {
+      if (firstChunk) {
+        messages.value[messageIndex].content = chunk
+        firstChunk = false
+      } else {
+        messages.value[messageIndex].content += chunk
+      }
+      scrollToBottom()
+    },
+    () => {
+      isLoading.value = false
+      scrollToBottom()
+    },
+    err => {
+      messages.value[messageIndex].content = `错误: ${err}`
+      isLoading.value = false
+    }
+  )
+}
+
+// 分析选中的终端内容
+const analyzeSelection = async () => {
+  const selection = terminalSelectedText.value
+  if (!selection || isLoading.value) return
+
+  const userMessage: ChatMessage = {
+    id: Date.now().toString(),
+    role: 'user',
+    content: `请帮我分析这段终端输出：\n\`\`\`\n${selection}\n\`\`\``
+  ,
+    timestamp: new Date()
+  }
+  messages.value.push(userMessage)
+  isLoading.value = true
+  await scrollToBottom()
+
+  const assistantMessage: ChatMessage = {
+    id: (Date.now() + 1).toString(),
+    role: 'assistant',
+    content: '分析中...',
+    timestamp: new Date()
+  }
+  messages.value.push(assistantMessage)
+  const messageIndex = messages.value.length - 1
+  await scrollToBottom()
+
+  const info = currentSystemInfo.value
+  const osContext = info ? `当前用户使用的是 ${info.os === 'windows' ? 'Windows' : info.os === 'macos' ? 'macOS' : 'Linux'} 系统，Shell 类型是 ${info.shell}。` : ''
+
+  let firstChunk = true
+  window.electronAPI.ai.chatStream(
+    [
+      {
+        role: 'system',
+        content: `你是一个专业的运维工程师助手。${osContext}用户会给你一段终端输出，请用中文分析这段内容，解释其含义，如果有错误请提供解决方案。`
+      },
+      { role: 'user', content: `请分析这段终端输出：\n\`\`\`\n${selection}\n\`\`\`` }
+    ],
+    chunk => {
+      if (firstChunk) {
+        messages.value[messageIndex].content = chunk
+        firstChunk = false
+      } else {
+        messages.value[messageIndex].content += chunk
+      }
+      scrollToBottom()
+    },
+    () => {
+      isLoading.value = false
+      scrollToBottom()
+    },
+    err => {
+      messages.value[messageIndex].content = `错误: ${err}`
+      isLoading.value = false
+    }
+  )
+}
+
 // 复制消息
 const copyMessage = async (content: string) => {
   try {
@@ -383,6 +519,36 @@ const quickActions = [
           {{ currentSystemInfo.os === 'windows' ? 'Windows' : currentSystemInfo.os === 'macos' ? 'macOS' : 'Linux' }}
           · {{ currentSystemInfo.shell === 'powershell' ? 'PowerShell' : currentSystemInfo.shell === 'cmd' ? 'CMD' : currentSystemInfo.shell === 'bash' ? 'Bash' : currentSystemInfo.shell === 'zsh' ? 'Zsh' : currentSystemInfo.shell }}
         </span>
+      </div>
+
+      <!-- 错误诊断提示 -->
+      <div v-if="lastError" class="error-alert">
+        <div class="error-alert-icon">⚠️</div>
+        <div class="error-alert-content">
+          <div class="error-alert-title">检测到错误</div>
+          <div class="error-alert-text">{{ lastError.content.slice(0, 80) }}{{ lastError.content.length > 80 ? '...' : '' }}</div>
+        </div>
+        <button class="error-alert-btn" @click="diagnoseError" :disabled="isLoading">
+          AI 诊断
+        </button>
+        <button class="error-alert-close" @click="terminalStore.clearError(terminalStore.activeTab?.id || '')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- 终端选中内容提示 -->
+      <div v-if="terminalSelectedText && !lastError" class="selection-alert">
+        <div class="selection-alert-icon">📋</div>
+        <div class="selection-alert-content">
+          <div class="selection-alert-title">已选中终端内容</div>
+          <div class="selection-alert-text">{{ terminalSelectedText.slice(0, 60) }}{{ terminalSelectedText.length > 60 ? '...' : '' }}</div>
+        </div>
+        <button class="selection-alert-btn" @click="analyzeSelection" :disabled="isLoading">
+          AI 分析
+        </button>
       </div>
 
       <!-- 快捷操作 -->
@@ -513,6 +679,139 @@ const quickActions = [
 
 .system-text {
   font-family: var(--font-mono);
+}
+
+/* 错误诊断提示 */
+.error-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(244, 63, 94, 0.1);
+  border-bottom: 1px solid rgba(244, 63, 94, 0.2);
+}
+
+.error-alert-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.error-alert-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.error-alert-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f43f5e;
+  margin-bottom: 2px;
+}
+
+.error-alert-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.error-alert-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #fff;
+  background: #f43f5e;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.error-alert-btn:hover:not(:disabled) {
+  background: #e11d48;
+}
+
+.error-alert-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error-alert-close {
+  padding: 4px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.error-alert-close:hover {
+  opacity: 1;
+  background: rgba(244, 63, 94, 0.2);
+}
+
+/* 选中内容提示 */
+.selection-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(59, 130, 246, 0.1);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.selection-alert-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.selection-alert-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.selection-alert-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #3b82f6;
+  margin-bottom: 2px;
+}
+
+.selection-alert-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selection-alert-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #fff;
+  background: #3b82f6;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.selection-alert-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.selection-alert-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .quick-actions {

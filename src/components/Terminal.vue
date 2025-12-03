@@ -132,6 +132,8 @@ onMounted(async () => {
       if (!isDisposed && terminal) {
         try {
           terminal.write(data)
+          // 捕获输出用于 AI 分析
+          terminalStore.appendOutput(props.tabId, data)
         } catch (e) {
           // 忽略写入错误
         }
@@ -142,12 +144,22 @@ onMounted(async () => {
       if (!isDisposed && terminal) {
         try {
           terminal.write(data)
+          // 捕获输出用于 AI 分析
+          terminalStore.appendOutput(props.tabId, data)
         } catch (e) {
           // 忽略写入错误
         }
       }
     })
   }
+
+  // 监听选中文本变化
+  terminal.onSelectionChange(() => {
+    if (terminal) {
+      const selection = terminal.getSelection()
+      terminalStore.updateSelectedText(props.tabId, selection || '')
+    }
+  })
 
   // 监听窗口大小变化
   resizeObserver = new ResizeObserver(() => {

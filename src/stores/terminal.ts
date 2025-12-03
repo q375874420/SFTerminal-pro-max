@@ -25,6 +25,15 @@ export interface TerminalTab {
   systemInfo?: SystemInfo
   isConnected: boolean
   isLoading: boolean
+  // 终端输出缓冲（最近的输出）
+  outputBuffer?: string[]
+  // 最近检测到的错误
+  lastError?: {
+    content: string
+    timestamp: Date
+  }
+  // 当前选中的文本
+  selectedText?: string
 }
 
 export interface SplitPane {
@@ -94,6 +103,94 @@ export const useTerminalStore = defineStore('terminal', () => {
         ...systemInfo
       } as SystemInfo
     }
+  }
+
+  /**
+   * 追加终端输出到缓冲区
+   */
+  const MAX_OUTPUT_LINES = 100
+  function appendOutput(tabId: string, output: string): void {
+    const tab = tabs.value.find(t => t.id === tabId)
+    if (!tab) return
+
+    if (!tab.outputBuffer) {
+      tab.outputBuffer = []
+    }
+
+    // 按行分割并追加
+    const lines = output.split('\n')
+    tab.outputBuffer.push(...lines)
+
+    // 保持最大行数限制
+    if (tab.outputBuffer.length > MAX_OUTPUT_LINES) {
+      tab.outputBuffer = tab.outputBuffer.slice(-MAX_OUTPUT_LINES)
+    }
+
+    // 检测错误
+    detectError(tabId, output)
+  }
+
+  /**
+   * 检测终端输出中的错误
+   */
+  const errorPatterns = [
+    /error:/i,
+    /错误/,
+    /failed/i,
+    /失败/,
+    /exception/i,
+    /异常/,
+    /not found/i,
+    /找不到/,
+    /permission denied/i,
+    /拒绝访问/,
+    /command not found/i,
+    /无法识别/,
+    /cannot /i,
+    /unable to/i
+  ]
+
+  function detectError(tabId: string, output: string): void {
+    const tab = tabs.value.find(t => t.id === tabId)
+    if (!tab) return
+
+    // 检查是否包含错误模式
+    const hasError = errorPatterns.some(pattern => pattern.test(output))
+    if (hasError) {
+      tab.lastError = {
+        content: output.trim().slice(0, 500), // 限制长度
+        timestamp: new Date()
+      }
+    }
+  }
+
+  /**
+   * 清除错误提示
+   */
+  function clearError(tabId: string): void {
+    const tab = tabs.value.find(t => t.id === tabId)
+    if (tab) {
+      tab.lastError = undefined
+    }
+  }
+
+  /**
+   * 更新选中的文本
+   */
+  function updateSelectedText(tabId: string, text: string): void {
+    const tab = tabs.value.find(t => t.id === tabId)
+    if (tab) {
+      tab.selectedText = text
+    }
+  }
+
+  /**
+   * 获取终端最近的输出
+   */
+  function getRecentOutput(tabId: string, lines: number = 20): string {
+    const tab = tabs.value.find(t => t.id === tabId)
+    if (!tab?.outputBuffer) return ''
+    return tab.outputBuffer.slice(-lines).join('\n')
   }
 
   /**
@@ -263,6 +360,10 @@ export const useTerminalStore = defineStore('terminal', () => {
     setActiveTab,
     updateTabTitle,
     updateSystemInfo,
+    appendOutput,
+    clearError,
+    updateSelectedText,
+    getRecentOutput,
     writeToTerminal,
     resizeTerminal,
     splitTerminal
