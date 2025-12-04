@@ -1050,9 +1050,9 @@ onUnmounted(() => {
             · {{ currentSystemInfo.shell === 'powershell' ? 'PowerShell' : currentSystemInfo.shell === 'cmd' ? 'CMD' : currentSystemInfo.shell === 'bash' ? 'Bash' : currentSystemInfo.shell === 'zsh' ? 'Zsh' : currentSystemInfo.shell }}
           </span>
         </div>
-        <!-- 严格模式开关（Agent 模式下显示） -->
-        <div v-if="agentMode" class="strict-mode-toggle" @click.stop="strictMode = !strictMode">
-          <span class="toggle-label">严格</span>
+        <!-- 严格模式开关（Agent 模式下显示，执行中也可切换） -->
+        <div v-if="agentMode" class="strict-mode-toggle" @click.stop="strictMode = !strictMode" :title="strictMode ? '严格模式：每个命令都需确认' : '宽松模式：仅危险命令需确认'">
+          <span class="toggle-label">{{ strictMode ? '严格' : '宽松' }}</span>
           <span class="toggle-switch" :class="{ active: strictMode }">
             <span class="toggle-dot"></span>
           </span>
@@ -1138,12 +1138,13 @@ onUnmounted(() => {
             <li>「在当前目录创建一个 backup 文件夹并备份所有配置文件」</li>
           </ul>
 
-          <p class="welcome-section-title">🔒 严格模式 <span class="strict-badge">{{ strictMode ? '已开启' : '已关闭' }}</span></p>
+          <p class="welcome-section-title">{{ strictMode ? '🔒 严格模式' : '🔓 宽松模式' }} <span class="strict-badge" :class="{ relaxed: !strictMode }">{{ strictMode ? '已开启' : '已开启' }}</span></p>
           <ul>
             <li v-if="strictMode"><strong>每个命令都需要你确认</strong>后才会执行</li>
-            <li v-if="strictMode">命令在终端中执行，你可以看到完整输入输出</li>
-            <li v-if="!strictMode">安全命令会自动执行，只有危险命令需要确认</li>
-            <li v-if="!strictMode">命令在后台静默执行，结果显示在步骤中</li>
+            <li v-if="strictMode">适合敏感环境，完全掌控每一步操作</li>
+            <li v-if="!strictMode"><strong>安全命令自动执行</strong>，只有危险命令需要确认</li>
+            <li v-if="!strictMode">适合日常使用，提高效率的同时保障安全</li>
+            <li>所有命令都在终端执行，你可以看到完整输入输出</li>
           </ul>
 
           <p class="welcome-section-title">⚠️ 安全提示</p>
@@ -1676,6 +1677,10 @@ onUnmounted(() => {
   color: #fff;
   border-radius: 4px;
   margin-left: 6px;
+}
+
+.strict-badge.relaxed {
+  background: var(--accent-secondary, #10b981);
 }
 
 .message {
