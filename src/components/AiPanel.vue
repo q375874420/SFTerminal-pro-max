@@ -1099,8 +1099,8 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <!-- 快捷操作（有对话内容或 Agent 执行时隐藏） -->
-      <div v-if="messages.length === 0 && (!agentMode || (!isAgentRunning && agentSteps.length === 0))" class="quick-actions">
+      <!-- 快捷操作（仅对话模式且无对话内容时显示） -->
+      <div v-if="!agentMode && messages.length === 0" class="quick-actions">
         <button
           v-for="action in quickActions"
           :key="action.label"
