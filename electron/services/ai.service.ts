@@ -1,6 +1,8 @@
 import { ConfigService } from './config.service'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 import { SocksProxyAgent } from 'socks-proxy-agent'
+import * as https from 'https'
+import * as http from 'http'
 
 export interface AiMessage {
   role: 'system' | 'user' | 'assistant'
@@ -90,32 +92,11 @@ export class AiService {
       max_tokens: 2048
     }
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${profile.apiKey}`
-    }
-
     try {
-      // 使用 Node.js 原生 fetch（Electron 支持）
-      const fetchOptions: RequestInit = {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(requestBody)
-      }
-
-      // 注意：原生 fetch 不直接支持代理，需要使用 node-fetch 或其他方案
-      // 这里简化处理，生产环境可能需要更复杂的代理处理
-      const response = await fetch(profile.apiUrl, fetchOptions)
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`AI API 请求失败: ${response.status} - ${errorText}`)
-      }
-
-      const data = (await response.json()) as {
+      const data = await this.makeRequest<{
         choices?: { message?: { content?: string } }[]
         error?: { message?: string }
-      }
+      }>(profile, requestBody)
 
       if (data.error) {
         throw new Error(`AI API 错误: ${data.error.message}`)
@@ -131,7 +112,67 @@ export class AiService {
   }
 
   /**
-   * 发送聊天请求（流式）
+   * 发送 HTTP 请求（支持代理）
+   */
+  private makeRequest<T>(profile: AiProfile, body: object, signal?: AbortSignal): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const url = new URL(profile.apiUrl)
+      const isHttps = url.protocol === 'https:'
+      const httpModule = isHttps ? https : http
+
+      const options: https.RequestOptions = {
+        hostname: url.hostname,
+        port: url.port || (isHttps ? 443 : 80),
+        path: url.pathname + url.search,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${profile.apiKey}`
+        }
+      }
+
+      // 应用代理
+      if (profile.proxy) {
+        options.agent = this.getProxyAgent(profile.proxy)
+      }
+
+      const req = httpModule.request(options, (res) => {
+        let data = ''
+        res.on('data', (chunk) => {
+          data += chunk
+        })
+        res.on('end', () => {
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              resolve(JSON.parse(data))
+            } catch {
+              reject(new Error(`响应解析失败: ${data}`))
+            }
+          } else {
+            reject(new Error(`AI API 请求失败: ${res.statusCode} - ${data}`))
+          }
+        })
+      })
+
+      req.on('error', (err) => {
+        reject(new Error(`请求错误: ${err.message}`))
+      })
+
+      // 支持中止请求
+      if (signal) {
+        signal.addEventListener('abort', () => {
+          req.destroy()
+          reject(new Error('请求已中止'))
+        })
+      }
+
+      req.write(JSON.stringify(body))
+      req.end()
+    })
+  }
+
+  /**
+   * 发送聊天请求（流式，支持代理）
    * @param requestId 请求 ID，用于支持多个终端同时请求
    */
   async chatStream(
@@ -156,83 +197,106 @@ export class AiService {
       stream: true
     }
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${profile.apiKey}`
-    }
-
     // 创建 AbortController，使用 requestId 或生成一个唯一 ID
     const reqId = requestId || `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
     const abortController = new AbortController()
     this.abortControllers.set(reqId, abortController)
 
     try {
-      const response = await fetch(profile.apiUrl, {
+      const url = new URL(profile.apiUrl)
+      const isHttps = url.protocol === 'https:'
+      const httpModule = isHttps ? https : http
+
+      const options: https.RequestOptions = {
+        hostname: url.hostname,
+        port: url.port || (isHttps ? 443 : 80),
+        path: url.pathname + url.search,
         method: 'POST',
-        headers,
-        body: JSON.stringify(requestBody),
-        signal: abortController.signal
-      })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        onError(`AI API 请求失败: ${response.status} - ${errorText}`)
-        return
-      }
-
-      const reader = response.body?.getReader()
-      if (!reader) {
-        onError('无法读取响应流')
-        return
-      }
-
-      const decoder = new TextDecoder()
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        const chunk = decoder.decode(value)
-        const lines = chunk.split('\n').filter(line => line.trim())
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6)
-            if (data === '[DONE]') {
-              onDone()
-              return
-            }
-
-            try {
-              const parsed = JSON.parse(data) as {
-                choices?: { delta?: { content?: string } }[]
-              }
-              const content = parsed.choices?.[0]?.delta?.content
-              if (content) {
-                onChunk(content)
-              }
-            } catch {
-              // 忽略解析错误
-            }
-          }
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${profile.apiKey}`
         }
       }
 
-      onDone()
-    } catch (error) {
-      // 如果是中止请求，不算错误
-      if (error instanceof Error && error.name === 'AbortError') {
-        onDone()
-        return
+      // 应用代理
+      if (profile.proxy) {
+        options.agent = this.getProxyAgent(profile.proxy)
       }
+
+      const req = httpModule.request(options, (res) => {
+        if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+          let errorData = ''
+          res.on('data', (chunk) => { errorData += chunk })
+          res.on('end', () => {
+            onError(`AI API 请求失败: ${res.statusCode} - ${errorData}`)
+          })
+          return
+        }
+
+        let buffer = ''
+
+        res.on('data', (chunk: Buffer) => {
+          buffer += chunk.toString()
+          const lines = buffer.split('\n')
+          // 保留最后一个可能不完整的行
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            const trimmedLine = line.trim()
+            if (!trimmedLine) continue
+
+            if (trimmedLine.startsWith('data: ')) {
+              const data = trimmedLine.slice(6)
+              if (data === '[DONE]') {
+                onDone()
+                return
+              }
+
+              try {
+                const parsed = JSON.parse(data) as {
+                  choices?: { delta?: { content?: string } }[]
+                }
+                const content = parsed.choices?.[0]?.delta?.content
+                if (content) {
+                  onChunk(content)
+                }
+              } catch {
+                // 忽略解析错误
+              }
+            }
+          }
+        })
+
+        res.on('end', () => {
+          onDone()
+        })
+
+        res.on('error', (err) => {
+          onError(`响应错误: ${err.message}`)
+        })
+      })
+
+      req.on('error', (err) => {
+        if (err.message === '请求已中止') {
+          onDone()
+          return
+        }
+        onError(`请求错误: ${err.message}`)
+      })
+
+      // 支持中止请求
+      abortController.signal.addEventListener('abort', () => {
+        req.destroy()
+      })
+
+      req.write(JSON.stringify(requestBody))
+      req.end()
+    } catch (error) {
       if (error instanceof Error) {
         onError(`AI 请求失败: ${error.message}`)
       } else {
         onError('AI 请求失败: 未知错误')
       }
-    } finally {
-      // 清理 AbortController
-      this.abortControllers.delete(reqId)
     }
   }
 
