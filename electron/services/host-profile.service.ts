@@ -198,13 +198,6 @@ export class HostProfileService {
   }
 
   /**
-   * 获取所有档案（用于导出）
-   */
-  getAllProfiles(): HostProfile[] {
-    return Array.from(this.profiles.values())
-  }
-
-  /**
    * 导入档案（用于数据恢复）
    */
   importProfiles(profiles: HostProfile[]): void {
@@ -287,12 +280,19 @@ export class HostProfileService {
     }
 
     // 解析操作系统
-    if (output.includes('Darwin')) {
+    // 优先检测 Windows 特征（Windows_NT 是 %OS% 的典型输出）
+    if (output.includes('Windows_NT') || output.includes('Windows') || output.includes('WINDOWS')) {
+      result.os = 'windows'
+      // Windows 系统的 shell 检测
+      if (output.includes('powershell') || output.includes('PowerShell')) {
+        result.shell = 'powershell'
+      } else if (output.includes('cmd')) {
+        result.shell = 'cmd'
+      }
+    } else if (output.includes('Darwin')) {
       result.os = 'macos'
     } else if (output.includes('Linux')) {
       result.os = 'linux'
-    } else if (output.includes('Windows')) {
-      result.os = 'windows'
     }
 
     // 解析系统版本

@@ -1163,8 +1163,17 @@ const autoProbeHostProfile = async (): Promise<void> => {
       const profile = await window.electronAPI.hostProfile.probeLocal()
       currentHostProfile.value = profile
       console.log('[HostProfile] 自动探测完成:', profile)
+    } else {
+      // SSH 主机：通过 SSH 连接探测
+      const activeTab = terminalStore.activeTab
+      if (activeTab?.type === 'ssh' && activeTab.ptyId) {
+        const profile = await window.electronAPI.hostProfile.probeSsh(activeTab.ptyId, hostId)
+        if (profile) {
+          currentHostProfile.value = profile
+          console.log('[HostProfile] SSH 自动探测完成:', profile)
+        }
+      }
     }
-    // SSH 主机的自动探测暂不实现
   } catch (e) {
     console.error('[HostProfile] 自动探测失败:', e)
   }

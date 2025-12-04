@@ -603,3 +603,26 @@ ipcMain.handle('hostProfile:generateContext', async (_event, hostId: string) => 
   return hostProfileService.generateHostContext(hostId)
 })
 
+// SSH 主机探测
+ipcMain.handle('hostProfile:probeSsh', async (_event, sshId: string, hostId: string) => {
+  try {
+    // 通过 SSH 执行探测命令
+    const probeOutput = await sshService.probe(sshId)
+    
+    // 解析探测结果
+    const existingProfile = hostProfileService.getProfile(hostId)
+    const probeResult = hostProfileService.parseProbeOutput(probeOutput, existingProfile)
+    
+    // 更新档案
+    const updatedProfile = hostProfileService.updateProfile(hostId, {
+      ...probeResult,
+      lastProbed: Date.now()
+    })
+    
+    return updatedProfile
+  } catch (error) {
+    console.error('[SSH Probe] 探测失败:', error)
+    return null
+  }
+})
+
