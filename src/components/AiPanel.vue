@@ -1205,6 +1205,10 @@ onUnmounted(() => {
                   <span class="step-icon">{{ getStepIcon(step.type) }}</span>
                   <div class="step-content">
                     <div class="step-text">{{ step.content }}</div>
+                    <!-- 显示命令（如果是 execute_command） -->
+                    <div v-if="step.type === 'tool_call' && step.toolArgs?.command" class="step-command">
+                      <code>{{ step.toolArgs.command }}</code>
+                    </div>
                     <div v-if="step.toolResult" class="step-result">
                       <pre>{{ step.toolResult }}</pre>
                     </div>
@@ -2192,6 +2196,21 @@ onUnmounted(() => {
 .step-text {
   word-break: break-word;
   line-height: 1.4;
+}
+
+.step-command {
+  margin-top: 4px;
+}
+
+.step-command code {
+  display: inline-block;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 11px;
+  color: var(--accent-secondary, #10b981);
+  word-break: break-all;
 }
 
 .step-result {
