@@ -1904,8 +1904,10 @@ watch(() => terminalStore.activeTabId, () => {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  background: rgba(244, 63, 94, 0.1);
-  border-bottom: 1px solid rgba(244, 63, 94, 0.2);
+  background: rgba(244, 63, 94, 0.15);
+  border-bottom: 1px solid rgba(244, 63, 94, 0.3);
+  flex-shrink: 0;
+  z-index: 10;
 }
 
 .error-alert-icon {
@@ -1979,8 +1981,10 @@ watch(() => terminalStore.activeTabId, () => {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  background: rgba(59, 130, 246, 0.1);
-  border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+  background: rgba(59, 130, 246, 0.15);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.3);
+  flex-shrink: 0;
+  z-index: 10;
 }
 
 .selection-alert-icon {
