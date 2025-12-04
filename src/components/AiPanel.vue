@@ -1065,7 +1065,7 @@ const summarizeAgentFindings = async (hostId: string) => {
   
   // 让 AI 更新记忆（新增、更新、删除）
   try {
-    const prompt = `你是主机信息管理助手。请根据最新的 Agent 交互记录，更新主机的记忆信息。
+    const prompt = `你是主机信息管理助手。请精简更新主机的记忆信息。
 
 ## 当前已有记忆
 ${existingNotes.length > 0 ? existingNotes.map((n: string) => `- ${n}`).join('\n') : '（空）'}
@@ -1074,26 +1074,24 @@ ${existingNotes.length > 0 ? existingNotes.map((n: string) => `- ${n}`).join('\n
 ${recentInteractions.join('\n\n')}
 
 ## 任务
-请输出更新后的完整记忆列表。规则：
-1. **保留**：仍然有效的静态信息
-2. **更新**：如果发现某信息有变化（如路径变了），用新的替换旧的
-3. **删除**：如果发现某服务已卸载或信息已失效，不要保留
-4. **新增**：从交互记录中发现的新的静态信息
+输出更新后的记忆列表。**最多保留 5 条**最重要的信息。
 
-只记录这类静态信息：
-- 配置文件路径
-- 日志目录位置  
-- 服务安装路径
-- 自定义脚本位置
+### 只记录这些（必须是用户可能再次需要的关键路径）：
+- 用户项目或应用的配置文件路径
+- 用户项目或应用的日志目录
+- 用户自定义的脚本或数据目录
 
-不要记录动态信息（端口、进程、使用率等）。
+### 不要记录：
+- 系统默认路径（如 /etc/nginx/、/var/log/ 等常见路径）
+- 动态信息（端口、进程、状态、使用率）
+- 临时目录或缓存
 
-## 输出格式
-每条一行，格式如：
-- nginx 配置在 /etc/nginx/conf.d/
-- 应用日志在 /var/log/myapp/
+### 输出格式
+最多 5 条，每条一行：
+- 项目配置在 /home/user/myapp/config/
+- 应用日志在 /data/logs/myapp/
 
-如果没有任何值得记住的信息，只输出：无`
+如果没有值得记住的信息，只输出：无`
 
     const response = await window.electronAPI.ai.chat([
       { role: 'user', content: prompt }
@@ -1108,15 +1106,42 @@ ${recentInteractions.join('\n\n')}
         }
       } else {
         // 解析新的记忆列表
-        const newNotes = response.split('\n')
-          .map(l => l.replace(/^[-•]\s*/, '').trim())
-          .filter(l => l && l.length > 5 && l.length < 100 && !l.includes('输出') && !l.includes('格式'))
+        // 过滤动态信息和系统默认路径
+        const dynamicPatterns = [
+          /端口/i, /port/i, /监听/i, /listen/i,
+          /进程/i, /process/i, /pid/i,
+          /运行中/i, /running/i, /stopped/i, /状态/i,
+          /使用率/i, /占用/i, /usage/i,
+          /\d+%/, /\d+mb/i, /\d+gb/i,
+          /连接/i, /connection/i,
+          /登录/i, /login/i
+        ]
+        // 系统默认路径不需要记录
+        const commonPaths = [
+          /^\/etc\/nginx\/?$/i,
+          /^\/var\/log\/?$/i,
+          /^\/usr\/local\/?$/i,
+          /^\/home\/?$/i,
+          /^\/root\/?$/i
+        ]
         
-        if (newNotes.length > 0) {
-          // 替换整个记忆列表
-          await window.electronAPI.hostProfile.update(hostId, { notes: newNotes })
-          console.log('[HostProfile] 更新记忆:', newNotes)
-        }
+        const newNotes = response.split('\n')
+          .map(l => l.replace(/^[-•✅❌]\s*/, '').trim())
+          .filter(l => {
+            if (!l || l.length < 10 || l.length > 80) return false
+            if (l.includes('输出') || l.includes('格式') || l.includes('最多')) return false
+            if (dynamicPatterns.some(p => p.test(l))) return false
+            if (!l.includes('/') && !l.includes('\\')) return false
+            // 提取路径部分检查是否是常见默认路径
+            const pathMatch = l.match(/[\/\\][\w\/\\\-\.]+/)
+            if (pathMatch && commonPaths.some(p => p.test(pathMatch[0]))) return false
+            return true
+          })
+          .slice(0, 5)  // 最多保留 5 条
+        
+        // 替换整个记忆列表
+        await window.electronAPI.hostProfile.update(hostId, { notes: newNotes })
+        console.log('[HostProfile] 更新记忆:', newNotes)
       }
     }
   } catch (e) {

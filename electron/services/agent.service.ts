@@ -210,13 +210,13 @@ export class AgentService {
         type: 'function',
         function: {
           name: 'remember_info',
-          description: `记住重要的**静态**信息供以后参考。适合记住的：配置文件路径、日志目录、自定义脚本位置、特殊的系统配置等不易变化的信息。不要记住的：端口监听状态、进程列表、磁盘使用率、内存占用等动态变化的运行时信息。`,
+          description: `记住用户项目的关键路径。只在发现用户自定义的、非常规的配置或日志路径时使用。不要记录系统默认路径（如/etc/nginx/）或动态信息。`,
           parameters: {
             type: 'object',
             properties: {
               info: {
                 type: 'string',
-                description: '要记住的静态信息（如"nginx 配置在 /etc/nginx/conf.d/"、"项目日志在 /var/log/myapp/"）'
+                description: '用户项目的关键路径（如"项目配置在/data/myapp/config/"）'
               }
             },
             required: ['info']
@@ -545,6 +545,28 @@ export class AgentService {
           return { success: false, output: '', error: '信息不能为空' }
         }
 
+        // 过滤动态信息
+        const dynamicPatterns = [
+          /端口/i, /port/i, /监听/i, /listen/i,
+          /进程/i, /process/i, /pid/i,
+          /运行中/i, /running/i, /stopped/i, /状态/i,
+          /使用率/i, /占用/i, /usage/i,
+          /\d+%/, /\d+mb/i, /\d+gb/i,
+          /连接/i, /connection/i
+        ]
+        
+        const isDynamic = dynamicPatterns.some(p => p.test(info))
+        const hasPath = info.includes('/') || info.includes('\\')
+        
+        if (isDynamic || !hasPath) {
+          this.addStep(agentId, {
+            type: 'tool_result',
+            content: `跳过: "${info}" (动态信息或非路径)`,
+            toolName: name
+          })
+          return { success: true, output: '此信息为动态信息，不适合长期记忆' }
+        }
+
         this.addStep(agentId, {
           type: 'tool_call',
           content: `记住信息: ${info}`,
@@ -855,7 +877,7 @@ ${hostContext}
 3. **说明下一步原因**：在执行下一个命令前，解释为什么需要这个命令
 4. 分步执行复杂任务，每步执行后检查结果
 5. 遇到错误时分析原因并提供解决方案
-6. **主动记忆**：发现重要信息时（如配置文件位置、服务端口、日志路径等），使用 remember_info 保存，以便未来参考
+6. **主动记忆**：发现静态路径信息时（如配置文件位置、日志目录），使用 remember_info 保存。注意：只记录路径，不要记录端口、进程、状态等动态信息
 
 ## 输出格式示例
 用户：查看磁盘空间
