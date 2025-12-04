@@ -46,6 +46,7 @@ export interface AgentState {
   agentId?: string
   steps: AgentStep[]
   pendingConfirm?: PendingConfirmation
+  finalResult?: string  // Agent 完成后的最终回复
 }
 
 export interface TerminalTab {
@@ -606,6 +607,15 @@ export const useTerminalStore = defineStore('terminal', () => {
   }
 
   /**
+   * 设置 Agent 最终结果
+   */
+  function setAgentFinalResult(tabId: string, result: string): void {
+    const tab = tabs.value.find(t => t.id === tabId)
+    if (!tab?.agentState) return
+    tab.agentState.finalResult = result
+  }
+
+  /**
    * 获取 Agent 上下文（用于发送给后端）
    * 返回纯 JavaScript 对象，确保可以通过 IPC 序列化
    */
@@ -660,6 +670,7 @@ export const useTerminalStore = defineStore('terminal', () => {
     addAgentStep,
     setAgentPendingConfirm,
     clearAgentState,
+    setAgentFinalResult,
     getAgentContext
   }
 })

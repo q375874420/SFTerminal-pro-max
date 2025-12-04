@@ -60,6 +60,10 @@ const pendingConfirm = computed(() => {
   return agentState.value?.pendingConfirm
 })
 
+const agentFinalResult = computed(() => {
+  return agentState.value?.finalResult
+})
+
 const hasAiConfig = computed(() => configStore.hasAiConfig)
 
 // AI 配置列表和当前选中的配置
@@ -93,7 +97,21 @@ const lastError = computed(() => {
 // 计算上下文使用情况
 const contextStats = computed(() => {
   const msgs = messages.value.filter(msg => !msg.content.includes('中...'))
-  const totalChars = msgs.reduce((sum, msg) => sum + msg.content.length, 0)
+  let totalChars = msgs.reduce((sum, msg) => sum + msg.content.length, 0)
+  
+  // 加上 Agent 步骤的字符数
+  if (agentSteps.value.length > 0) {
+    const stepsChars = agentSteps.value.reduce((sum, step) => {
+      return sum + step.content.length + (step.toolResult?.length || 0)
+    }, 0)
+    totalChars += stepsChars
+  }
+  
+  // 加上 Agent 最终结果
+  if (agentFinalResult.value) {
+    totalChars += agentFinalResult.value.length
+  }
+  
   // 粗略估算 token 数：中文约 1-2 字符/token，英文约 4 字符/token
   // 这里用 2 作为平均值
   const estimatedTokens = Math.ceil(totalChars / 2)
@@ -104,7 +122,7 @@ const contextStats = computed(() => {
   const maxTokens = activeAiProfile.value?.contextLength || 8000
   
   return {
-    messageCount: msgs.length,
+    messageCount: msgs.length + (agentSteps.value.length > 0 ? 1 : 0),
     charCount: totalChars,
     tokenEstimate: totalTokens,
     maxTokens,
@@ -768,38 +786,18 @@ const runAgent = async () => {
       } as { ptyId: string; terminalOutput: string[]; systemInfo: { os: string; shell: string }; historyMessages?: { role: string; content: string }[] }
     )
 
-    // 标记 Agent 已完成（保留步骤显示供回顾）
+    // 标记 Agent 已完成，设置最终结果（显示在步骤下方）
     terminalStore.setAgentRunning(tabId, false)
 
     if (!result.success) {
-      // 添加错误消息
-      const errorMessage: AiMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `❌ Agent 执行失败: ${result.error}`,
-        timestamp: new Date()
-      }
-      terminalStore.addAiMessage(tabId, errorMessage)
+      terminalStore.setAgentFinalResult(tabId, `❌ 执行失败: ${result.error}`)
     } else if (result.result) {
-      // 添加完成消息（带总结标记）
-      const completeMessage: AiMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: result.result,
-        timestamp: new Date()
-      }
-      terminalStore.addAiMessage(tabId, completeMessage)
+      terminalStore.setAgentFinalResult(tabId, result.result)
     }
   } catch (error) {
     console.error('Agent 运行失败:', error)
     terminalStore.setAgentRunning(tabId, false)
-    const errorMessage: AiMessage = {
-      id: (Date.now() + 1).toString(),
-      role: 'assistant',
-      content: `❌ Agent 运行出错: ${error instanceof Error ? error.message : '未知错误'}`,
-      timestamp: new Date()
-    }
-    terminalStore.addAiMessage(tabId, errorMessage)
+    terminalStore.setAgentFinalResult(tabId, `❌ 运行出错: ${error instanceof Error ? error.message : '未知错误'}`)
   }
 
   await scrollToBottom()
@@ -1148,6 +1146,11 @@ onUnmounted(() => {
                     </div>
                   </div>
                 </div>
+              </div>
+              <!-- Agent 最终回复 -->
+              <div v-if="agentFinalResult" class="agent-final-result">
+                <div class="final-result-divider"></div>
+                <div class="final-result-content" v-html="renderMarkdown(agentFinalResult)"></div>
               </div>
             </div>
           </div>
@@ -1993,6 +1996,31 @@ onUnmounted(() => {
 
 .agent-steps-body {
   margin-top: 10px;
+}
+
+/* Agent 最终回复 */
+.agent-final-result {
+  margin-top: 12px;
+}
+
+.final-result-divider {
+  height: 1px;
+  background: linear-gradient(to right, var(--accent-primary), transparent);
+  margin-bottom: 12px;
+}
+
+.final-result-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.final-result-content :deep(p) {
+  margin: 0 0 8px;
+}
+
+.final-result-content :deep(p:last-child) {
+  margin-bottom: 0;
 }
 
 .agent-running-dot {
