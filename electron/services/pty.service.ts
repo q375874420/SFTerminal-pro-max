@@ -38,6 +38,8 @@ export class PtyService {
   private instances: Map<string, PtyInstance> = new Map()
   // 追踪正在执行的命令（按 ptyId 分组）
   private pendingCommands: Map<string, PendingCommand> = new Map()
+  // 调试用：上次输出提示符检测日志的时间
+  private lastPromptLog: number = 0
 
   // 标记前缀，使用特殊 Unicode 字符降低冲突概率
   private readonly MARKER_PREFIX = '⟦AGENT:'
@@ -400,21 +402,34 @@ export class PtyService {
       let lastOutputTime = Date.now()
       let checkTimer: NodeJS.Timeout | null = null
 
-      // 去除 ANSI 转义序列
+      // 去除 ANSI 转义序列和控制字符
       const stripAnsi = (str: string): string => {
-        // eslint-disable-next-line no-control-regex
-        return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
-                  .replace(/\x1b\][^\x07]*\x07/g, '')  // OSC 序列
-                  .replace(/\x1b[PX^_][^\x1b]*\x1b\\/g, '')  // DCS/PM/APC 序列
+        return str
+          // CSI 序列 (包括 [?2004h 等)
+          .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
+          // OSC 序列 (以 BEL 或 ST 结尾)
+          .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+          // 单独的 OSC 序列（可能没有正确结尾）
+          .replace(/\x1b\][^\n]*(?=\n|$)/g, '')
+          // DCS/PM/APC 序列
+          .replace(/\x1b[PX^_][^\x1b]*\x1b\\/g, '')
+          // 其他转义序列
+          .replace(/\x1b[=>NOcZ78]/g, '')
+          // zsh 的 %
+          .replace(/\x1b\[[\d;]*m%\x1b\[[\d;]*m/g, '')
+          // 控制字符（保留换行和回车）
+          .replace(/[\x00-\x09\x0b\x0c\x0e-\x1f]/g, '')
       }
       
       // 常见的 shell 提示符模式（更宽松）
       const promptPatterns = [
         /[$#%>❯➜»⟩›]\s*$/,                    // 常见结束符
-        /[$#%>❯➜»⟩›]\s*\n?$/,                 // 可能有换行
+        /\w+@[\w.-]+\s+[~\/][\w\/.-]*\s*%\s*$/,  // macOS zsh: user@host ~ %
         /\w+@[\w.-]+[^$#%]*[$#%]\s*$/,        // user@host 格式
         /\[\w+@[\w.-]+[^\]]*\]\s*[$#%]\s*$/,  // [user@host path]$ 格式
         /\w+\s*[$#%>❯➜»⟩›]\s*$/,             // 简单的 user$ 格式
+        /[~\/][\w\/.-]*\s*[$#%>❯]\s*$/,       // 路径 + 提示符
+        />\s*$/,                               // 简单的 > 提示符 (fish/powershell)
       ]
       
       const isPrompt = (text: string): boolean => {
@@ -425,9 +440,14 @@ export class PtyService {
         const last80 = cleanText.slice(-80)
         
         const matched = promptPatterns.some(p => p.test(lastLine) || p.test(last80))
-        // 调试日志
+        // 调试日志（每 2 秒输出一次检测状态）
+        const now = Date.now()
+        if (!this.lastPromptLog || now - this.lastPromptLog > 2000) {
+          this.lastPromptLog = now
+          console.log(`[PtyService] 提示符检测: matched=${matched}, lastLine="${lastLine.slice(-50)}"`)
+        }
         if (matched) {
-          console.log(`[PtyService] 检测到提示符: "${lastLine.slice(-30)}"`)
+          console.log(`[PtyService] ✓ 检测到提示符: "${lastLine.slice(-40)}"`)
         }
         return matched
       }
