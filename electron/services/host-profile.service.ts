@@ -447,11 +447,21 @@ export class HostProfileService {
       result.os = 'windows'
       
       try {
-        // 探测 Windows 版本
-        const { stdout: ver } = await execAsync('ver')
+        // 探测 Windows 版本（使用 PowerShell 避免编码问题）
+        const { stdout: ver } = await execAsync('powershell -Command "[System.Environment]::OSVersion.VersionString"')
         result.osVersion = ver.trim()
-      } catch (e) { 
-        console.log('[HostProfile] ver 探测失败:', e)
+      } catch {
+        // 如果 PowerShell 失败，尝试使用 wmic
+        try {
+          const { stdout: wmic } = await execAsync('wmic os get Caption,Version /value')
+          const captionMatch = wmic.match(/Caption=(.+)/)
+          const versionMatch = wmic.match(/Version=(.+)/)
+          if (captionMatch) {
+            result.osVersion = `${captionMatch[1].trim()} ${versionMatch?.[1]?.trim() || ''}`.trim()
+          }
+        } catch (e) {
+          console.log('[HostProfile] Windows 版本探测失败:', e)
+        }
       }
 
       // 探测 Shell（通过环境变量判断）- 不需要 try-catch，这里不会抛异常
