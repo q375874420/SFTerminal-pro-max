@@ -20,13 +20,14 @@ export type RiskLevel = 'safe' | 'moderate' | 'dangerous' | 'blocked'
 // Agent 执行步骤
 export interface AgentStep {
   id: string
-  type: 'thinking' | 'tool_call' | 'tool_result' | 'message' | 'error' | 'confirm'
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'message' | 'error' | 'confirm' | 'streaming'
   content: string
   toolName?: string
   toolArgs?: Record<string, unknown>
   toolResult?: string
   riskLevel?: RiskLevel
   timestamp: number
+  isStreaming?: boolean  // 是否正在流式输出
 }
 
 // Agent 上下文
@@ -86,6 +87,7 @@ export class AgentService {
   private onNeedConfirmCallback?: (confirmation: PendingConfirmation) => void
   private onCompleteCallback?: (agentId: string, result: string) => void
   private onErrorCallback?: (agentId: string, error: string) => void
+  private onTextChunkCallback?: (agentId: string, chunk: string) => void  // 流式文本回调
 
   // 默认配置
   private readonly defaultConfig: AgentConfig = {
@@ -119,11 +121,13 @@ export class AgentService {
     onNeedConfirm?: (confirmation: PendingConfirmation) => void
     onComplete?: (agentId: string, result: string) => void
     onError?: (agentId: string, error: string) => void
+    onTextChunk?: (agentId: string, chunk: string) => void  // 流式文本回调
   }): void {
     this.onStepCallback = callbacks.onStep
     this.onNeedConfirmCallback = callbacks.onNeedConfirm
     this.onCompleteCallback = callbacks.onComplete
     this.onErrorCallback = callbacks.onError
+    this.onTextChunkCallback = callbacks.onTextChunk
   }
 
   /**
@@ -311,6 +315,37 @@ export class AgentService {
     }
 
     return fullStep
+  }
+
+  /**
+   * 更新执行步骤（用于流式输出）
+   */
+  private updateStep(agentId: string, stepId: string, updates: Partial<Omit<AgentStep, 'id' | 'timestamp'>>): void {
+    const run = this.runs.get(agentId)
+    if (!run) return
+
+    // 查找现有步骤
+    let step = run.steps.find(s => s.id === stepId)
+    
+    if (!step) {
+      // 如果步骤不存在，创建一个新的
+      step = {
+        id: stepId,
+        type: updates.type || 'message',
+        content: updates.content || '',
+        timestamp: Date.now(),
+        isStreaming: updates.isStreaming
+      }
+      run.steps.push(step)
+    } else {
+      // 更新现有步骤
+      Object.assign(step, updates)
+    }
+
+    // 触发回调
+    if (this.onStepCallback) {
+      this.onStepCallback(agentId, step)
+    }
   }
 
   /**
@@ -668,16 +703,53 @@ export class AgentService {
       while (stepCount < fullConfig.maxSteps && run.isRunning && !run.aborted) {
         stepCount++
 
-        // 调用 AI
-        const response = await this.aiService.chatWithTools(
-          run.messages,
-          this.getTools(),
-          profileId
-        )
+        // 创建流式消息步骤
+        const streamStepId = this.generateId()
+        let streamContent = ''
+        
+        // 使用流式 API 调用 AI
+        const response = await new Promise<ChatWithToolsResult>((resolve, reject) => {
+          this.aiService.chatWithToolsStream(
+            run.messages,
+            this.getTools(),
+            // onChunk: 流式文本更新
+            (chunk) => {
+              streamContent += chunk
+              // 发送流式更新
+              this.updateStep(agentId, streamStepId, {
+                type: 'message',
+                content: streamContent,
+                isStreaming: true
+              })
+            },
+            // onToolCall: 工具调用（流式结束时）
+            (_toolCalls) => {
+              // 工具调用会在 onDone 中处理
+            },
+            // onDone: 完成
+            (result) => {
+              // 标记流式结束
+              if (streamContent) {
+                this.updateStep(agentId, streamStepId, {
+                  type: 'message',
+                  content: streamContent,
+                  isStreaming: false
+                })
+              }
+              resolve(result)
+            },
+            // onError: 错误
+            (error) => {
+              reject(new Error(error))
+            },
+            profileId
+          )
+        })
+        
         lastResponse = response
 
-        // 处理 AI 响应
-        if (response.content) {
+        // 如果没有流式内容但有最终内容，添加消息步骤
+        if (!streamContent && response.content) {
           this.addStep(agentId, {
             type: 'message',
             content: response.content
@@ -689,7 +761,7 @@ export class AgentService {
           // 将 assistant 消息（包含 tool_calls）添加到历史
           run.messages.push({
             role: 'assistant',
-            content: response.content || '',
+            content: response.content || streamContent || '',
             tool_calls: response.tool_calls
           })
 
@@ -701,7 +773,7 @@ export class AgentService {
               agentId,
               ptyId,
               toolCall,
-              fullConfig,
+              run.config,  // 使用运行时配置，支持动态更新
               context.terminalOutput
             )
 
@@ -841,6 +913,18 @@ ${hostContext}
       steps: run.steps,
       pendingConfirmation: run.pendingConfirmation
     }
+  }
+
+  /**
+   * 更新运行中的 Agent 配置（如严格模式）
+   */
+  updateConfig(agentId: string, config: Partial<AgentConfig>): boolean {
+    const run = this.runs.get(agentId)
+    if (!run) return false
+
+    // 合并配置
+    run.config = { ...run.config, ...config }
+    return true
   }
 
   /**

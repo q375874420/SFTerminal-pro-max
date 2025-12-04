@@ -369,6 +369,11 @@ ipcMain.handle('agent:cleanup', async (_event, agentId: string) => {
   agentService.cleanup(agentId)
 })
 
+// 更新 Agent 配置（如严格模式）
+ipcMain.handle('agent:updateConfig', async (_event, agentId: string, config: { strictMode?: boolean; commandTimeout?: number }) => {
+  return agentService.updateConfig(agentId, config)
+})
+
 // ==================== 历史记录相关 ====================
 
 // 保存聊天记录

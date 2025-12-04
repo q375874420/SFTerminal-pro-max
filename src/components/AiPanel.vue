@@ -79,6 +79,22 @@ const isAgentRunning = computed(() => {
   return agentState.value?.isRunning || false
 })
 
+// 监听严格模式变化，实时更新运行中的 Agent
+watch(strictMode, async (newValue) => {
+  const agentId = agentState.value?.agentId
+  if (agentId && isAgentRunning.value) {
+    await window.electronAPI.agent.updateConfig(agentId, { strictMode: newValue })
+  }
+})
+
+// 监听超时设置变化
+watch(commandTimeout, async (newValue) => {
+  const agentId = agentState.value?.agentId
+  if (agentId && isAgentRunning.value) {
+    await window.electronAPI.agent.updateConfig(agentId, { commandTimeout: newValue * 1000 })
+  }
+})
+
 // 按任务分组的步骤（每个任务包含：用户任务 + 步骤块 + 最终结果）
 interface AgentTaskGroup {
   id: string

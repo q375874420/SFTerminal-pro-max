@@ -242,6 +242,10 @@ const electronAPI = {
     // 清理 Agent 运行记录
     cleanup: (agentId: string) => ipcRenderer.invoke('agent:cleanup', agentId),
 
+    // 更新 Agent 配置（如严格模式）
+    updateConfig: (agentId: string, config: { strictMode?: boolean; commandTimeout?: number }) =>
+      ipcRenderer.invoke('agent:updateConfig', agentId, config) as Promise<boolean>,
+
     // 监听 Agent 步骤更新
     onStep: (callback: (data: { agentId: string; step: AgentStep }) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { agentId: string; step: AgentStep }) => callback(data)

@@ -581,7 +581,8 @@ export const useTerminalStore = defineStore('terminal', () => {
   }
 
   /**
-   * 添加 Agent 执行步骤
+   * 添加或更新 Agent 执行步骤
+   * 如果步骤 id 已存在，则更新；否则添加新步骤
    */
   function addAgentStep(tabId: string, step: AgentStep): void {
     const tab = tabs.value.find(t => t.id === tabId)
@@ -595,7 +596,16 @@ export const useTerminalStore = defineStore('terminal', () => {
       }
     }
 
-    tab.agentState.steps.push(step)
+    // 查找是否存在相同 id 的步骤
+    const existingIndex = tab.agentState.steps.findIndex(s => s.id === step.id)
+    
+    if (existingIndex >= 0) {
+      // 更新现有步骤（用于流式输出）
+      tab.agentState.steps[existingIndex] = step
+    } else {
+      // 添加新步骤
+      tab.agentState.steps.push(step)
+    }
   }
 
   /**

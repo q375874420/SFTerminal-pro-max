@@ -471,6 +471,174 @@ export class AiService {
   }
 
   /**
+   * 带工具的聊天（流式）
+   * 用于 Agent 模式，支持 function calling 和流式输出
+   */
+  async chatWithToolsStream(
+    messages: AiMessage[],
+    tools: ToolDefinition[],
+    onChunk: (chunk: string) => void,
+    onToolCall: (toolCalls: ToolCall[]) => void,
+    onDone: (result: ChatWithToolsResult) => void,
+    onError: (error: string) => void,
+    profileId?: string
+  ): Promise<void> {
+    const profile = await this.getCurrentProfile(profileId)
+    if (!profile) {
+      onError('未配置 AI 模型，请先在设置中添加 AI 配置')
+      return
+    }
+
+    // 转换消息格式
+    const formattedMessages = messages.map(msg => {
+      if (msg.role === 'tool') {
+        return {
+          role: 'tool' as const,
+          content: msg.content,
+          tool_call_id: msg.tool_call_id
+        }
+      }
+      if (msg.role === 'assistant' && msg.tool_calls) {
+        return {
+          role: 'assistant' as const,
+          content: msg.content || null,
+          tool_calls: msg.tool_calls
+        }
+      }
+      return {
+        role: msg.role,
+        content: msg.content
+      }
+    })
+
+    const requestBody = {
+      model: profile.model,
+      messages: formattedMessages,
+      tools: tools.length > 0 ? tools : undefined,
+      tool_choice: tools.length > 0 ? 'auto' : undefined,
+      temperature: 0.7,
+      max_tokens: 4096,
+      stream: true
+    }
+
+    try {
+      const url = new URL(profile.apiUrl)
+      const isHttps = url.protocol === 'https:'
+      const httpModule = isHttps ? https : http
+
+      const options: https.RequestOptions = {
+        hostname: url.hostname,
+        port: url.port || (isHttps ? 443 : 80),
+        path: url.pathname + url.search,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${profile.apiKey}`
+        }
+      }
+
+      if (profile.proxy) {
+        options.agent = this.getProxyAgent(profile.proxy)
+      }
+
+      let content = ''
+      let toolCalls: ToolCall[] = []
+      let finishReason: string | undefined
+
+      const req = httpModule.request(options, (res) => {
+        let buffer = ''
+
+        res.on('data', (chunk: Buffer) => {
+          buffer += chunk.toString()
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6).trim()
+              if (data === '[DONE]') {
+                onDone({
+                  content: content || undefined,
+                  tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+                  finish_reason: finishReason as ChatWithToolsResult['finish_reason']
+                })
+                return
+              }
+
+              try {
+                const json = JSON.parse(data)
+                const delta = json.choices?.[0]?.delta
+                const reason = json.choices?.[0]?.finish_reason
+
+                if (reason) {
+                  finishReason = reason
+                }
+
+                if (delta?.content) {
+                  content += delta.content
+                  onChunk(delta.content)
+                }
+
+                // 处理 tool_calls 流式更新
+                if (delta?.tool_calls) {
+                  for (const tc of delta.tool_calls) {
+                    const index = tc.index ?? 0
+                    if (!toolCalls[index]) {
+                      toolCalls[index] = {
+                        id: tc.id || '',
+                        type: 'function',
+                        function: {
+                          name: tc.function?.name || '',
+                          arguments: tc.function?.arguments || ''
+                        }
+                      }
+                    } else {
+                      if (tc.function?.arguments) {
+                        toolCalls[index].function.arguments += tc.function.arguments
+                      }
+                    }
+                  }
+                }
+              } catch {
+                // 忽略解析错误
+              }
+            }
+          }
+        })
+
+        res.on('end', () => {
+          // 如果有工具调用，通知一次
+          if (toolCalls.length > 0) {
+            onToolCall(toolCalls)
+          }
+          onDone({
+            content: content || undefined,
+            tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+            finish_reason: finishReason as ChatWithToolsResult['finish_reason']
+          })
+        })
+
+        res.on('error', (err) => {
+          onError(`请求错误: ${err.message}`)
+        })
+      })
+
+      req.on('error', (err) => {
+        onError(`请求失败: ${err.message}`)
+      })
+
+      req.write(JSON.stringify(requestBody))
+      req.end()
+    } catch (error) {
+      if (error instanceof Error) {
+        onError(`AI 请求失败: ${error.message}`)
+      } else {
+        onError('AI 请求失败')
+      }
+    }
+  }
+
+  /**
    * 生成命令解释的 prompt
    */
   static getExplainCommandPrompt(command: string): AiMessage[] {

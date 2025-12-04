@@ -19,7 +19,8 @@ const showSettings = ref(false)
 const aiPanelWidth = ref(420)
 const isResizing = ref(false)
 const MIN_AI_WIDTH = 300
-const MAX_AI_WIDTH = 800
+// 最大宽度为窗口宽度的一半
+const getMaxAiWidth = () => Math.max(600, Math.floor(window.innerWidth / 2))
 
 // 提供给子组件
 provide('showSettings', () => {
@@ -66,8 +67,9 @@ const handleResize = (e: MouseEvent) => {
   // 计算新宽度（从右边缘到鼠标位置）
   const newWidth = window.innerWidth - e.clientX
   
-  // 限制宽度范围
-  if (newWidth >= MIN_AI_WIDTH && newWidth <= MAX_AI_WIDTH) {
+  // 限制宽度范围（最大为窗口一半）
+  const maxWidth = getMaxAiWidth()
+  if (newWidth >= MIN_AI_WIDTH && newWidth <= maxWidth) {
     aiPanelWidth.value = newWidth
   }
 }
