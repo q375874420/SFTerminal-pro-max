@@ -136,6 +136,17 @@ const sendMessage = async () => {
 
   try {
     let firstChunk = true
+    
+    // 构建包含历史对话的消息列表
+    const currentMessages = terminalStore.getAiMessages(tabId)
+    // 过滤掉占位消息（内容包含"中..."的），并转换格式
+    const historyMessages = currentMessages
+      .filter(msg => !msg.content.includes('中...'))
+      .map(msg => ({
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content
+      }))
+    
     // 使用流式响应，传入 tabId 作为 requestId 支持多终端同时请求
     window.electronAPI.ai.chatStream(
       [
@@ -143,7 +154,7 @@ const sendMessage = async () => {
           role: 'system',
           content: getSystemPrompt()
         },
-        { role: 'user', content: prompt }
+        ...historyMessages
       ],
       chunk => {
         const currentContent = terminalStore.getAiMessages(tabId)[messageIndex]?.content || ''
