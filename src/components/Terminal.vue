@@ -90,6 +90,7 @@ onMounted(async () => {
   }, 100)
 
   // 监听用户输入
+  if (!terminal) return
   terminal.onData(data => {
     terminalStore.writeToTerminal(props.tabId, data)
   })
