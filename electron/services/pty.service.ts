@@ -376,14 +376,13 @@ export class PtyService {
   }
 
   /**
-   * 在终端执行命令并收集输出（严格模式用）
-   * 不使用标记，通过检测输出停止来判断命令完成
+   * 在终端执行命令并收集输出
+   * 通过检测 shell 提示符来判断命令完成
    */
   executeInTerminal(
     id: string, 
     command: string, 
-    timeout: number = 30000,
-    silenceTimeout: number = 2000  // 输出停止后等待的时间
+    timeout: number = 30000
   ): Promise<{ output: string; duration: number }> {
     return new Promise((resolve) => {
       const instance = this.instances.get(id)
@@ -394,14 +393,28 @@ export class PtyService {
 
       const startTime = Date.now()
       let output = ''
-      let silenceTimer: NodeJS.Timeout | null = null
       let timeoutTimer: NodeJS.Timeout | null = null
       let resolved = false
+      let commandSent = false
+
+      // 常见的 shell 提示符模式
+      // $ 或 # 结尾（bash, zsh）
+      // > 结尾（PowerShell, cmd）
+      // 或者包含 ❯ ➜ » 等特殊字符
+      const promptPatterns = [
+        /[$#>❯➜»]\s*$/,           // 行尾提示符
+        /\n[^\n]*[$#>❯➜»]\s*$/,   // 新行提示符
+        /\r\n[^\r\n]*>\s*$/,       // Windows 风格
+      ]
+
+      const isPrompt = (text: string): boolean => {
+        // 检查最后一段是否像提示符
+        const lastLine = text.split(/[\r\n]/).filter(l => l.trim()).pop() || ''
+        return promptPatterns.some(p => p.test(lastLine) || p.test(text.slice(-50)))
+      }
 
       const cleanup = () => {
-        if (silenceTimer) clearTimeout(silenceTimer)
         if (timeoutTimer) clearTimeout(timeoutTimer)
-        // 移除输出监听器
         const idx = instance.dataCallbacks.indexOf(outputHandler)
         if (idx !== -1) {
           instance.dataCallbacks.splice(idx, 1)
@@ -412,22 +425,39 @@ export class PtyService {
         if (resolved) return
         resolved = true
         cleanup()
+        
+        // 清理输出：移除命令本身和最后的提示符
+        let cleanOutput = output
+        // 移除第一行（命令回显）
+        const lines = cleanOutput.split(/\r?\n/)
+        if (lines.length > 1 && lines[0].includes(command.slice(0, 20))) {
+          lines.shift()
+        }
+        // 移除最后的空行或提示符行
+        while (lines.length > 0 && (lines[lines.length - 1].trim() === '' || isPrompt(lines[lines.length - 1]))) {
+          lines.pop()
+        }
+        cleanOutput = lines.join('\n')
+        
         resolve({
-          output: output.trim(),
+          output: cleanOutput.trim(),
           duration: Date.now() - startTime
         })
-      }
-
-      // 重置静默计时器（每次收到输出时）
-      const resetSilenceTimer = () => {
-        if (silenceTimer) clearTimeout(silenceTimer)
-        silenceTimer = setTimeout(finish, silenceTimeout)
       }
 
       // 输出处理器
       const outputHandler = (data: string) => {
         output += data
-        resetSilenceTimer()
+        
+        // 命令发送后，检测提示符表示命令完成
+        if (commandSent && isPrompt(output)) {
+          // 等待一小段时间确认没有更多输出
+          setTimeout(() => {
+            if (isPrompt(output)) {
+              finish()
+            }
+          }, 100)
+        }
       }
 
       // 添加输出监听器
@@ -444,8 +474,10 @@ export class PtyService {
       // 发送命令（添加换行符执行）
       instance.pty.write(command + '\n')
       
-      // 启动静默计时器
-      resetSilenceTimer()
+      // 标记命令已发送，开始检测提示符
+      setTimeout(() => {
+        commandSent = true
+      }, 50)  // 短暂延迟，避免误检测命令回显
     })
   }
 
