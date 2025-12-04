@@ -3,18 +3,20 @@ import { ref } from 'vue'
 import AiSettings from './AiSettings.vue'
 import ThemeSettings from './ThemeSettings.vue'
 import TerminalSettings from './TerminalSettings.vue'
+import DataSettings from './DataSettings.vue'
 
 const emit = defineEmits<{
   close: []
 }>()
 
-type SettingsTab = 'ai' | 'theme' | 'terminal' | 'about'
+type SettingsTab = 'ai' | 'theme' | 'terminal' | 'data' | 'about'
 const activeTab = ref<SettingsTab>('ai')
 
 const tabs = [
   { id: 'ai' as const, label: 'AI 配置', icon: '🤖' },
   { id: 'theme' as const, label: '主题配色', icon: '🎨' },
   { id: 'terminal' as const, label: '终端设置', icon: '⚙️' },
+  { id: 'data' as const, label: '数据管理', icon: '💾' },
   { id: 'about' as const, label: '关于', icon: 'ℹ️' }
 ]
 </script>
@@ -48,6 +50,7 @@ const tabs = [
           <AiSettings v-if="activeTab === 'ai'" />
           <ThemeSettings v-else-if="activeTab === 'theme'" />
           <TerminalSettings v-else-if="activeTab === 'terminal'" />
+          <DataSettings v-else-if="activeTab === 'data'" />
           <div v-else-if="activeTab === 'about'" class="about-content">
             <div class="about-logo">🐟</div>
             <h3>旗鱼终端</h3>
