@@ -355,26 +355,16 @@ export class AgentService {
           }
         }
 
-        // 严格模式：发送命令到终端，等待用户按回车执行
+        // 严格模式：确认后在终端执行（用户可见）
         // 普通模式：后台静默执行
         if (config.strictMode) {
           try {
-            // 发送命令到终端（不带换行符），等待用户按回车
-            const result = await this.ptyService.sendCommandAndWaitForExecution(
+            // 在终端执行命令（用户可以看到输入和输出）
+            const result = await this.ptyService.executeInTerminal(
               ptyId,
               command,
               config.commandTimeout
             )
-
-            if (result.cancelled) {
-              this.addStep(agentId, {
-                type: 'tool_result',
-                content: '用户取消了命令执行',
-                toolName: name,
-                toolResult: '已取消'
-              })
-              return { success: false, output: '', error: '用户取消了命令执行' }
-            }
 
             this.addStep(agentId, {
               type: 'tool_result',
