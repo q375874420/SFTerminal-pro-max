@@ -20,6 +20,7 @@ const messagesRef = ref<HTMLDivElement | null>(null)
 // Agent 模式状态
 const agentMode = ref(true)
 const strictMode = ref(true)       // 严格模式（默认开启）
+const commandTimeout = ref(10)     // 命令超时时间（秒），默认 10 秒
 const stepsCollapsed = ref(false)  // 步骤是否折叠
 
 // 清理事件监听的函数
@@ -825,7 +826,7 @@ const runAgent = async () => {
   terminalStore.setAgentRunning(tabId, true, undefined, message)
 
   try {
-    // 调用 Agent API，传递严格模式配置
+    // 调用 Agent API，传递配置
     const result = await window.electronAPI.agent.run(
       context.ptyId,
       message,
@@ -833,7 +834,7 @@ const runAgent = async () => {
         ...context,
         historyMessages  // 添加历史对话
       } as { ptyId: string; terminalOutput: string[]; systemInfo: { os: string; shell: string }; historyMessages?: { role: string; content: string }[] },
-      { strictMode: strictMode.value }  // 传递严格模式配置
+      { strictMode: strictMode.value, commandTimeout: commandTimeout.value * 1000 }  // 传递配置（超时时间转为毫秒）
     )
 
     // 标记 Agent 已完成，设置最终结果（在步骤块之后显示）
@@ -1051,7 +1052,7 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <!-- 系统环境信息 + 严格模式开关 -->
+      <!-- 系统环境信息 + Agent 设置 -->
       <div class="system-info-bar">
         <div v-if="currentSystemInfo" class="system-info-left">
         <span class="system-icon">💻</span>
@@ -1060,12 +1061,27 @@ onUnmounted(() => {
           · {{ currentSystemInfo.shell === 'powershell' ? 'PowerShell' : currentSystemInfo.shell === 'cmd' ? 'CMD' : currentSystemInfo.shell === 'bash' ? 'Bash' : currentSystemInfo.shell === 'zsh' ? 'Zsh' : currentSystemInfo.shell }}
         </span>
         </div>
-        <!-- 严格模式开关（Agent 模式下显示，执行中也可切换） -->
-        <div v-if="agentMode" class="strict-mode-toggle" @click.stop="strictMode = !strictMode" :title="strictMode ? '严格模式：每个命令都需确认' : '宽松模式：仅危险命令需确认'">
-          <span class="toggle-label">{{ strictMode ? '严格' : '宽松' }}</span>
-          <span class="toggle-switch" :class="{ active: strictMode }">
-            <span class="toggle-dot"></span>
-          </span>
+        <!-- Agent 模式设置 -->
+        <div v-if="agentMode" class="agent-settings">
+          <!-- 超时设置 -->
+          <div class="timeout-setting" title="命令执行超时时间">
+            <span class="timeout-label">超时</span>
+            <select v-model.number="commandTimeout" class="timeout-select">
+              <option :value="5">5s</option>
+              <option :value="10">10s</option>
+              <option :value="30">30s</option>
+              <option :value="60">60s</option>
+              <option :value="120">2m</option>
+              <option :value="300">5m</option>
+            </select>
+          </div>
+          <!-- 严格模式开关 -->
+          <div class="strict-mode-toggle" @click.stop="strictMode = !strictMode" :title="strictMode ? '严格模式：每个命令都需确认' : '宽松模式：仅危险命令需确认'">
+            <span class="toggle-label">{{ strictMode ? '严格' : '宽松' }}</span>
+            <span class="toggle-switch" :class="{ active: strictMode }">
+              <span class="toggle-dot"></span>
+            </span>
+          </div>
         </div>
       </div>
 
@@ -1272,7 +1288,7 @@ onUnmounted(() => {
       </div>
 
       <!-- 上下文使用情况 -->
-      <div v-if="messages.length > 0" class="context-stats">
+      <div v-if="messages.length > 0 || (agentMode && agentUserTask)" class="context-stats">
         <div class="context-info">
           <span class="context-label">上下文</span>
           <span class="context-value">~{{ contextStats.tokenEstimate.toLocaleString() }} / {{ (contextStats.maxTokens / 1000).toFixed(0) }}K</span>
@@ -2056,6 +2072,44 @@ onUnmounted(() => {
 .mode-btn.active {
   background: var(--accent-primary);
   color: #fff;
+  border-color: var(--accent-primary);
+}
+
+/* Agent 设置区域 */
+.agent-settings {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 超时设置 */
+.timeout-setting {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.timeout-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.timeout-select {
+  font-size: 11px;
+  padding: 2px 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  cursor: pointer;
+  outline: none;
+}
+
+.timeout-select:hover {
+  border-color: var(--accent-primary);
+}
+
+.timeout-select:focus {
   border-color: var(--accent-primary);
 }
 
