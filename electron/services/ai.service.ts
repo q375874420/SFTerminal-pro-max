@@ -131,16 +131,36 @@ export class AiService {
     try {
       const data = await this.makeRequest<{
         choices?: { message?: { content?: string } }[]
-        error?: { message?: string }
+        error?: { message?: string; code?: string; type?: string }
       }>(profile, requestBody)
 
       if (data.error) {
+        // 检测上下文超限错误
+        const errorMsg = data.error.message?.toLowerCase() || ''
+        const errorCode = data.error.code?.toLowerCase() || ''
+        
+        if (errorMsg.includes('context_length') || 
+            errorMsg.includes('maximum context') ||
+            (errorMsg.includes('token') && errorMsg.includes('limit')) ||
+            errorCode.includes('context_length')) {
+          throw new Error(`上下文超出模型限制。请清除部分对话历史后重试。`)
+        }
+        
         throw new Error(`AI API 错误: ${data.error.message}`)
       }
 
       return data.choices?.[0]?.message?.content || ''
     } catch (error) {
       if (error instanceof Error) {
+        if (error.message.includes('上下文超出')) {
+          throw error
+        }
+        const msg = error.message.toLowerCase()
+        if (msg.includes('context_length') || 
+            msg.includes('maximum context') ||
+            (msg.includes('token') && msg.includes('limit'))) {
+          throw new Error(`上下文超出模型限制。请清除部分对话历史后重试。`)
+        }
         throw new Error(`AI 请求失败: ${error.message}`)
       }
       throw error
@@ -264,7 +284,16 @@ export class AiService {
           let errorData = ''
           res.on('data', (chunk) => { errorData += chunk })
           res.on('end', () => {
-            onError(`AI API 请求失败: ${res.statusCode} - ${errorData}`)
+            // 检测上下文超限错误
+            const errorLower = errorData.toLowerCase()
+            if (errorLower.includes('context_length') || 
+                errorLower.includes('maximum context') ||
+                (errorLower.includes('token') && errorLower.includes('limit')) ||
+                errorLower.includes('too many tokens')) {
+              onError(`上下文超出模型限制。请清除部分对话历史后重试。`)
+            } else {
+              onError(`AI API 请求失败: ${res.statusCode} - ${errorData}`)
+            }
           })
           return
         }
@@ -390,10 +419,25 @@ export class AiService {
           }
           finish_reason?: string
         }[]
-        error?: { message?: string }
+        error?: { message?: string; code?: string; type?: string }
       }>(profile, requestBody)
 
       if (data.error) {
+        // 检测上下文超限错误
+        const errorMsg = data.error.message?.toLowerCase() || ''
+        const errorCode = data.error.code?.toLowerCase() || ''
+        const errorType = data.error.type?.toLowerCase() || ''
+        
+        if (errorMsg.includes('context_length') || 
+            errorMsg.includes('maximum context') ||
+            errorMsg.includes('token') && errorMsg.includes('limit') ||
+            errorMsg.includes('too many tokens') ||
+            errorMsg.includes('too long') ||
+            errorCode.includes('context_length') ||
+            errorType.includes('context_length')) {
+          throw new Error(`上下文超出模型限制。请清除部分对话历史后重试。\n原始错误: ${data.error.message}`)
+        }
+        
         throw new Error(`AI API 错误: ${data.error.message}`)
       }
 
@@ -409,6 +453,17 @@ export class AiService {
       }
     } catch (error) {
       if (error instanceof Error) {
+        // 如果已经是格式化的错误，直接抛出
+        if (error.message.includes('上下文超出')) {
+          throw error
+        }
+        // 再次检测错误消息中的上下文超限
+        const msg = error.message.toLowerCase()
+        if (msg.includes('context_length') || 
+            msg.includes('maximum context') ||
+            (msg.includes('token') && msg.includes('limit'))) {
+          throw new Error(`上下文超出模型限制。请清除部分对话历史后重试。`)
+        }
         throw new Error(`AI 请求失败: ${error.message}`)
       }
       throw error
