@@ -24,7 +24,7 @@ export type RiskLevel = 'safe' | 'moderate' | 'dangerous' | 'blocked'
 
 export interface AgentStep {
   id: string
-  type: 'thinking' | 'tool_call' | 'tool_result' | 'message' | 'error' | 'confirm'
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'message' | 'error' | 'confirm' | 'user_task' | 'final_result'
   content: string
   toolName?: string
   toolArgs?: Record<string, unknown>
@@ -41,9 +41,10 @@ export interface PendingConfirmation {
   riskLevel: RiskLevel
 }
 
-// Agent 历史任务记录
+// Agent 历史任务记录（完整保存执行过程）
 export interface AgentHistoryItem {
   userTask: string        // 用户任务描述
+  steps: AgentStep[]      // 完整的执行步骤
   finalResult: string     // Agent 完成后的回复
   timestamp: number       // 时间戳
 }
@@ -614,15 +615,17 @@ export const useTerminalStore = defineStore('terminal', () => {
     const tab = tabs.value.find(t => t.id === tabId)
     if (tab) {
       const existingHistory = preserveHistory ? (tab.agentState?.history || []) : []
+      const existingSteps = preserveHistory ? (tab.agentState?.steps || []) : []
       
-      // 如果有已完成的任务，保存到历史
+      // 如果有已完成的任务，保存摘要到历史（用于 AI 上下文）
       if (preserveHistory && tab.agentState?.userTask && tab.agentState?.finalResult) {
         existingHistory.push({
           userTask: tab.agentState.userTask,
+          steps: [],  // 历史中不需要保存步骤，UI 中已经保留了
           finalResult: tab.agentState.finalResult,
           timestamp: Date.now()
         })
-        // 只保留最近 10 条历史
+        // 只保留最近 10 条历史摘要（用于 AI 上下文）
         while (existingHistory.length > 10) {
           existingHistory.shift()
         }
@@ -630,7 +633,7 @@ export const useTerminalStore = defineStore('terminal', () => {
       
       tab.agentState = {
         isRunning: false,
-        steps: [],
+        steps: existingSteps,  // 保留之前的步骤，不清空
         history: existingHistory
       }
     }

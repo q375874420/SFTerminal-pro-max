@@ -56,16 +56,17 @@ const isAgentRunning = computed(() => {
 
 const agentSteps = computed(() => {
   let steps = agentState.value?.steps || []
-  const finalResult = agentState.value?.finalResult
   
-  // 过滤掉 confirm 类型的步骤（确认对话框单独显示，不需要在步骤列表中显示）
+  // 过滤掉 confirm 类型的步骤（确认对话框单独显示）
+  // 保留 user_task 和 final_result 类型
   steps = steps.filter(step => step.type !== 'confirm')
   
-  // 如果有 finalResult，过滤掉最后一个相同内容的 message（避免重复显示总结）
-  if (finalResult && steps.length > 0) {
+  // 如果最后一个 message 和 final_result 内容相同，移除 message 避免重复
+  if (steps.length >= 2) {
     const lastStep = steps[steps.length - 1]
-    if (lastStep.type === 'message' && lastStep.content === finalResult) {
-      return steps.slice(0, -1)
+    const secondLast = steps[steps.length - 2]
+    if (lastStep.type === 'final_result' && secondLast.type === 'message' && secondLast.content === lastStep.content) {
+      steps = [...steps.slice(0, -2), lastStep]
     }
   }
   
@@ -82,6 +83,11 @@ const agentFinalResult = computed(() => {
 
 const agentUserTask = computed(() => {
   return agentState.value?.userTask
+})
+
+// Agent 历史任务记录
+const agentHistory = computed(() => {
+  return agentState.value?.history || []
 })
 
 const hasAiConfig = computed(() => configStore.hasAiConfig)
@@ -825,17 +831,25 @@ const runAgent = async () => {
     return
   }
 
-  // 清空之前的 Agent 状态，开始新任务（保留历史）
+  // 准备新任务（保留之前的步骤）
   terminalStore.clearAgentState(tabId, true)
-  await scrollToBottom()
-
+  
   // 从 Agent 历史中构建上下文消息
-  const agentHistory = agentState.value?.history || []
+  const currentHistory = agentState.value?.history || []
   const historyMessages: { role: 'user' | 'assistant'; content: string }[] = []
-  for (const item of agentHistory) {
+  for (const item of currentHistory) {
     historyMessages.push({ role: 'user', content: item.userTask })
     historyMessages.push({ role: 'assistant', content: item.finalResult })
   }
+
+  // 添加用户任务到步骤中（作为对话流的一部分）
+  terminalStore.addAgentStep(tabId, {
+    id: `user_task_${Date.now()}`,
+    type: 'user_task',
+    content: message,
+    timestamp: Date.now()
+  })
+  await scrollToBottom()
 
   // 设置 Agent 状态：正在运行 + 用户任务
   terminalStore.setAgentRunning(tabId, true, undefined, message)
@@ -852,18 +866,37 @@ const runAgent = async () => {
       { strictMode: strictMode.value, commandTimeout: commandTimeout.value * 1000 }  // 传递配置（超时时间转为毫秒）
     )
 
-    // 标记 Agent 已完成，设置最终结果（在步骤块之后显示）
+    // 标记 Agent 已完成
     terminalStore.setAgentRunning(tabId, false)
 
+    // 添加最终结果到步骤中
+    let finalContent = ''
     if (!result.success) {
-      terminalStore.setAgentFinalResult(tabId, `❌ Agent 执行失败: ${result.error}`)
+      finalContent = `❌ Agent 执行失败: ${result.error}`
     } else if (result.result) {
-      terminalStore.setAgentFinalResult(tabId, result.result)
+      finalContent = result.result
+    }
+    
+    if (finalContent) {
+      terminalStore.addAgentStep(tabId, {
+        id: `final_result_${Date.now()}`,
+        type: 'final_result',
+        content: finalContent,
+        timestamp: Date.now()
+      })
+      terminalStore.setAgentFinalResult(tabId, finalContent)
     }
   } catch (error) {
     console.error('Agent 运行失败:', error)
     terminalStore.setAgentRunning(tabId, false)
-    terminalStore.setAgentFinalResult(tabId, `❌ Agent 运行出错: ${error instanceof Error ? error.message : '未知错误'}`)
+    const errorContent = `❌ Agent 运行出错: ${error instanceof Error ? error.message : '未知错误'}`
+    terminalStore.addAgentStep(tabId, {
+      id: `final_result_${Date.now()}`,
+      type: 'final_result',
+      content: errorContent,
+      timestamp: Date.now()
+    })
+    terminalStore.setAgentFinalResult(tabId, errorContent)
   }
 
   await scrollToBottom()
@@ -910,6 +943,8 @@ const getStepIcon = (type: AgentStep['type']): string => {
     case 'message': return '💬'
     case 'error': return '❌'
     case 'confirm': return '⚠️'
+    case 'user_task': return '👤'
+    case 'final_result': return '✅'
     default: return '•'
   }
 }
@@ -1224,32 +1259,31 @@ onUnmounted(() => {
           </div>
         </template>
 
-        <!-- Agent 模式：用户任务 -->
-        <div v-if="agentMode && agentUserTask" class="message user">
-          <div class="message-wrapper">
-            <div class="message-content">
-              <span>{{ agentUserTask }}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Agent 执行步骤 -->
-        <div v-if="agentMode && agentSteps.length > 0" class="message assistant">
-          <div class="message-wrapper agent-steps-wrapper">
-            <div class="message-content agent-steps-content">
-              <div class="agent-steps-header-inline" @click="stepsCollapsed = !stepsCollapsed">
-                <span>🤖 {{ isAgentRunning ? 'Agent 执行中' : 'Agent 执行记录' }}</span>
-                <span v-if="isAgentRunning" class="agent-running-dot"></span>
-                <span class="steps-count">{{ agentSteps.length }} 步</span>
-                <span class="collapse-icon" :class="{ collapsed: stepsCollapsed }">▼</span>
+        <!-- Agent 执行步骤（包含用户任务和最终结果） -->
+        <template v-if="agentMode && agentSteps.length > 0">
+          <template v-for="step in agentSteps" :key="step.id">
+            <!-- 用户任务：独立消息块 -->
+            <div v-if="step.type === 'user_task'" class="message user">
+              <div class="message-wrapper">
+                <div class="message-content">
+                  <span>{{ step.content }}</span>
+                </div>
               </div>
-              <div v-show="!stepsCollapsed" class="agent-steps-body">
-                <div 
-                  v-for="step in agentSteps" 
-                  :key="step.id" 
-                  class="agent-step-inline"
-                  :class="[step.type, getRiskClass(step.riskLevel), { 'step-rejected': step.content.includes('拒绝') }]"
-                >
+            </div>
+            
+            <!-- 最终结果：独立消息块 -->
+            <div v-else-if="step.type === 'final_result'" class="message assistant">
+              <div class="message-wrapper">
+                <div class="message-content">
+                  <div class="markdown-content" v-html="renderMarkdown(step.content)"></div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- 其他步骤：紧凑显示 -->
+            <div v-else class="message assistant agent-step-message">
+              <div class="message-wrapper">
+                <div class="message-content agent-step-content-inline" :class="[step.type, getRiskClass(step.riskLevel), { 'step-rejected': step.content.includes('拒绝') }]">
                   <span class="step-icon">{{ getStepIcon(step.type) }}</span>
                   <div class="step-content">
                     <div class="step-text" :class="{ 'step-analysis': step.type === 'message' }">
@@ -1262,17 +1296,8 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-
-        <!-- Agent 最终回复（独立消息块，在步骤块之后） -->
-        <div v-if="agentMode && agentFinalResult" class="message assistant">
-          <div class="message-wrapper">
-            <div class="message-content">
-              <div class="markdown-content" v-html="renderMarkdown(agentFinalResult)"></div>
-            </div>
-          </div>
-        </div>
+          </template>
+        </template>
 
         <!-- Agent 确认对话框（融入对话流） -->
         <div v-if="pendingConfirm" class="message assistant">
@@ -2255,6 +2280,25 @@ onUnmounted(() => {
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+/* Agent 步骤消息（紧凑显示） */
+.agent-step-message {
+  margin-bottom: 4px !important;
+}
+
+.agent-step-message .message-wrapper {
+  padding: 6px 0;
+}
+
+.agent-step-content-inline {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px !important;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-radius: 8px;
 }
 
 .agent-step-inline {
