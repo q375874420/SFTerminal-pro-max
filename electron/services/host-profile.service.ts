@@ -139,7 +139,8 @@ export class HostProfileService {
       installedTools: updates.installedTools || existing?.installedTools || [],
       homeDir: updates.homeDir || existing?.homeDir,
       currentDir: updates.currentDir || existing?.currentDir,
-      notes: updates.notes || existing?.notes || [],
+      // notes 使用 undefined 检查，允许设置空数组
+      notes: updates.notes !== undefined ? updates.notes : (existing?.notes || []),
       lastProbed: updates.lastProbed || existing?.lastProbed || now,
       lastUpdated: now
     }

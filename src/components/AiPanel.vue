@@ -1059,47 +1059,64 @@ const summarizeAgentFindings = async (hostId: string) => {
   
   if (recentInteractions.length === 0) return
   
-  // 让 AI 提取关键静态信息
+  // 获取当前已有的记忆
+  const existingProfile = await window.electronAPI.hostProfile.get(hostId)
+  const existingNotes = existingProfile?.notes || []
+  
+  // 让 AI 更新记忆（新增、更新、删除）
   try {
-    const prompt = `请从以下 Agent 交互记录中提取值得记住的**静态信息**。
+    const prompt = `你是主机信息管理助手。请根据最新的 Agent 交互记录，更新主机的记忆信息。
 
-只提取这类信息：
-- 配置文件路径（如 nginx 配置在 /etc/nginx/）
-- 日志目录位置
-- 重要服务的安装路径
-- 自定义脚本位置
-- 特殊的系统配置
+## 当前已有记忆
+${existingNotes.length > 0 ? existingNotes.map((n: string) => `- ${n}`).join('\n') : '（空）'}
 
-不要提取：
-- 端口状态、进程信息等动态数据
-- 磁盘/内存使用率
-- 临时状态信息
-
-交互记录：
+## 最新交互记录
 ${recentInteractions.join('\n\n')}
 
-如果有值得记住的静态信息，每条一行输出，格式如：
+## 任务
+请输出更新后的完整记忆列表。规则：
+1. **保留**：仍然有效的静态信息
+2. **更新**：如果发现某信息有变化（如路径变了），用新的替换旧的
+3. **删除**：如果发现某服务已卸载或信息已失效，不要保留
+4. **新增**：从交互记录中发现的新的静态信息
+
+只记录这类静态信息：
+- 配置文件路径
+- 日志目录位置  
+- 服务安装路径
+- 自定义脚本位置
+
+不要记录动态信息（端口、进程、使用率等）。
+
+## 输出格式
+每条一行，格式如：
 - nginx 配置在 /etc/nginx/conf.d/
 - 应用日志在 /var/log/myapp/
 
-如果没有值得记住的信息，只输出：无`
+如果没有任何值得记住的信息，只输出：无`
 
     const response = await window.electronAPI.ai.chat([
       { role: 'user', content: prompt }
     ])
     
-    if (response && !response.includes('无') && response.trim()) {
-      // 解析并保存每条信息
-      const lines = response.split('\n')
-        .map(l => l.replace(/^[-•]\s*/, '').trim())
-        .filter(l => l && l.length > 5 && l.length < 100)
-      
-      for (const note of lines) {
-        await window.electronAPI.hostProfile.addNote(hostId, note)
-      }
-      
-      if (lines.length > 0) {
-        console.log('[HostProfile] AI 总结了关键信息:', lines)
+    if (response && response.trim()) {
+      if (response.trim() === '无' || response.includes('没有') && response.includes('信息')) {
+        // 清空所有记忆
+        if (existingNotes.length > 0) {
+          await window.electronAPI.hostProfile.update(hostId, { notes: [] })
+          console.log('[HostProfile] 清空了所有记忆')
+        }
+      } else {
+        // 解析新的记忆列表
+        const newNotes = response.split('\n')
+          .map(l => l.replace(/^[-•]\s*/, '').trim())
+          .filter(l => l && l.length > 5 && l.length < 100 && !l.includes('输出') && !l.includes('格式'))
+        
+        if (newNotes.length > 0) {
+          // 替换整个记忆列表
+          await window.electronAPI.hostProfile.update(hostId, { notes: newNotes })
+          console.log('[HostProfile] 更新记忆:', newNotes)
+        }
       }
     }
   } catch (e) {
