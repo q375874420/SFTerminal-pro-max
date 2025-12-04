@@ -387,7 +387,8 @@ export class PtyService {
     return new Promise((resolve) => {
       const instance = this.instances.get(id)
       if (!instance) {
-        resolve({ output: '终端实例不存在', duration: 0 })
+        console.error(`[PtyService] 终端实例不存在: id=${id}, 现有实例: ${Array.from(this.instances.keys()).join(', ')}`)
+        resolve({ output: `终端实例不存在 (id=${id})`, duration: 0 })
         return
       }
 
@@ -501,7 +502,8 @@ export class PtyService {
 
       // 构建带 OSC 标记的命令
       // 使用 printf 输出 OSC 序列，兼容性更好
-      const wrappedCommand = `printf '${OSC_START.replace(/'/g, "'\\''")}' 2>/dev/null; ${command}; __exit_code=$?; printf '\x1b]133;D;%d;id=${markerId}\x07' $__exit_code 2>/dev/null; exit $__exit_code 2>/dev/null || true`
+      // 注意：不能使用 exit，否则会退出 shell
+      const wrappedCommand = `printf '${OSC_START.replace(/'/g, "'\\''")}' 2>/dev/null; ${command}; __ec=$?; printf '\x1b]133;D;%d;id=${markerId}\x07' $__ec 2>/dev/null`
       
       // 发送命令
       instance.pty.write(wrappedCommand + '\n')
