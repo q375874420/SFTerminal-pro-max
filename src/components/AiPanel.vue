@@ -129,54 +129,57 @@ function estimateTokens(text: string): number {
 }
 
 // 计算上下文使用情况
+// 这个估算反映的是发送给 AI 的实际上下文大小
 const contextStats = computed(() => {
   let totalTokens = 0
   let messageCount = 0
   
   if (agentMode.value) {
-    // Agent 模式：计算 Agent 独立的上下文
-    // System prompt 约 800 tokens（包含工具定义）
-    totalTokens += 800
+    // Agent 模式：计算发送给 AI 的实际上下文
+    // 1. System prompt (~200 tokens) + 工具定义 (~400 tokens)
+    totalTokens += 600
     
-    // 历史任务
+    // 2. 历史任务（作为 user/assistant 消息对发送）
     const history = agentState.value?.history || []
     for (const item of history) {
-      totalTokens += estimateTokens(item.userTask)
-      totalTokens += estimateTokens(item.finalResult)
-      messageCount += 2  // 每个历史任务算 2 条消息
+      totalTokens += estimateTokens(item.userTask) + 3  // user 消息 + 格式开销
+      totalTokens += estimateTokens(item.finalResult) + 3  // assistant 消息 + 格式开销
+      messageCount += 2
     }
     
-    // 当前用户任务
+    // 3. 当前用户任务
     if (agentUserTask.value) {
-      totalTokens += estimateTokens(agentUserTask.value)
+      totalTokens += estimateTokens(agentUserTask.value) + 3
       messageCount++
     }
     
-    // Agent 步骤（包含完整步骤，不只是过滤后的）
+    // 4. Agent 执行过程中的消息累积
+    // 每个步骤 = AI 回复 + 工具调用 + 工具结果
     const allSteps = agentState.value?.steps || []
     for (const step of allSteps) {
-      totalTokens += estimateTokens(step.content)
-      if (step.toolResult) {
-        totalTokens += estimateTokens(step.toolResult)
+      if (step.type === 'message' || step.type === 'thinking') {
+        // AI 的文字回复
+        totalTokens += estimateTokens(step.content) + 3
+      } else if (step.type === 'tool_call' || step.type === 'tool_result') {
+        // 工具调用参数 + 工具结果
+        totalTokens += estimateTokens(step.content) + 10  // 工具调用有更多格式开销
+        if (step.toolResult) {
+          totalTokens += estimateTokens(step.toolResult) + 5
+        }
       }
-    }
-    
-    // 最终结果
-    if (agentFinalResult.value) {
-      totalTokens += estimateTokens(agentFinalResult.value)
     }
   } else {
     // 普通对话模式
-    // System prompt 约 300 tokens
-    totalTokens += 300
+    // System prompt (~100 tokens)
+    totalTokens += 100
     
-  const msgs = messages.value.filter(msg => !msg.content.includes('中...'))
+    const msgs = messages.value.filter(msg => !msg.content.includes('中...'))
     messageCount = msgs.length
     
     for (const msg of msgs) {
       totalTokens += estimateTokens(msg.content)
-      // 每条消息有额外的格式开销（role, 分隔符等）约 4 tokens
-      totalTokens += 4
+      // 每条消息格式开销（role 标记等）约 3 tokens
+      totalTokens += 3
     }
   }
   
