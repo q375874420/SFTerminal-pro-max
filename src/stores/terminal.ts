@@ -607,19 +607,21 @@ export const useTerminalStore = defineStore('terminal', () => {
 
   /**
    * 获取 Agent 上下文（用于发送给后端）
+   * 返回纯 JavaScript 对象，确保可以通过 IPC 序列化
    */
   function getAgentContext(tabId: string) {
     const tab = tabs.value.find(t => t.id === tabId)
     if (!tab) return null
 
-    return {
+    // 使用 JSON.parse(JSON.stringify()) 确保返回纯对象，移除 Proxy
+    return JSON.parse(JSON.stringify({
       ptyId: tab.ptyId || '',
-      terminalOutput: tab.outputBuffer || [],
+      terminalOutput: (tab.outputBuffer || []).slice(-50), // 只取最近50行
       systemInfo: {
         os: tab.systemInfo?.os || 'unknown',
         shell: tab.systemInfo?.shell || 'unknown'
       }
-    }
+    }))
   }
 
   return {

@@ -292,19 +292,23 @@ ipcMain.handle('agent:run', async (event, { ptyId, message, context, config, pro
   profileId?: string
 }) => {
   // 设置事件回调，将 Agent 事件转发到渲染进程
+  // 使用 JSON.parse(JSON.stringify()) 确保对象可序列化
   agentService.setCallbacks({
     onStep: (agentId: string, step: AgentStep) => {
       if (!event.sender.isDestroyed()) {
-        event.sender.send('agent:step', { agentId, step })
+        // 序列化 step 对象，确保可以通过 IPC 传递
+        const serializedStep = JSON.parse(JSON.stringify(step))
+        event.sender.send('agent:step', { agentId, step: serializedStep })
       }
     },
     onNeedConfirm: (confirmation: PendingConfirmation) => {
       if (!event.sender.isDestroyed()) {
+        // 只发送可序列化的字段，不包含 resolve 函数
         event.sender.send('agent:needConfirm', {
           agentId: confirmation.agentId,
           toolCallId: confirmation.toolCallId,
           toolName: confirmation.toolName,
-          toolArgs: confirmation.toolArgs,
+          toolArgs: JSON.parse(JSON.stringify(confirmation.toolArgs)),
           riskLevel: confirmation.riskLevel
         })
       }
