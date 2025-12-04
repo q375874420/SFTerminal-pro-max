@@ -35,7 +35,7 @@ const sshService = new SshService()
 const aiService = new AiService()
 const configService = new ConfigService()
 const xshellImportService = new XshellImportService()
-const agentService = new AgentService(aiService, ptyService)
+const agentService = new AgentService(aiService)
 
 function createWindow() {
   mainWindow = new BrowserWindow({

@@ -1,5 +1,5 @@
 import { AiService, AiMessage, ToolDefinition, ToolCall, ChatWithToolsResult } from './ai.service'
-import { PtyService, CommandResult } from './pty.service'
+import { CommandExecutorService, CommandResult } from './command-executor.service'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -68,7 +68,7 @@ interface AgentRun {
 
 export class AgentService {
   private aiService: AiService
-  private ptyService: PtyService
+  private commandExecutor: CommandExecutorService
   private runs: Map<string, AgentRun> = new Map()
 
   // 事件回调
@@ -86,9 +86,9 @@ export class AgentService {
     autoExecuteModerate: true
   }
 
-  constructor(aiService: AiService, ptyService: PtyService) {
+  constructor(aiService: AiService) {
     this.aiService = aiService
-    this.ptyService = ptyService
+    this.commandExecutor = new CommandExecutorService()
   }
 
   /**
@@ -343,11 +343,11 @@ export class AgentService {
           }
         }
 
-        // 执行命令
+        // 执行命令（在后台静默执行，不干扰用户终端）
         try {
-          const result: CommandResult = await this.ptyService.executeCommand(
-            ptyId,
+          const result: CommandResult = await this.commandExecutor.execute(
             command,
+            undefined,  // 使用默认工作目录
             config.commandTimeout
           )
 
@@ -698,8 +698,8 @@ export class AgentService {
       run.pendingConfirmation.resolve(false)
     }
 
-    // 中止 PTY 中正在执行的命令
-    this.ptyService.abortCommand(run.ptyId)
+    // 中止所有正在执行的命令
+    this.commandExecutor.abortAll()
 
     this.addStep(agentId, {
       type: 'error',

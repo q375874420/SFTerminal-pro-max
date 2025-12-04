@@ -1,0 +1,161 @@
+import { spawn, ChildProcess } from 'child_process'
+import * as os from 'os'
+
+export interface CommandResult {
+  output: string
+  exitCode: number
+  duration: number
+  aborted?: boolean
+}
+
+interface PendingExecution {
+  process: ChildProcess
+  resolve: (result: CommandResult) => void
+  startTime: number
+  output: string
+  timeoutId?: NodeJS.Timeout
+}
+
+/**
+ * 命令执行服务
+ * 在后台静默执行命令，不干扰用户终端
+ */
+export class CommandExecutorService {
+  private executions: Map<string, PendingExecution> = new Map()
+
+  /**
+   * 获取默认 Shell
+   */
+  private getDefaultShell(): string {
+    if (process.platform === 'win32') {
+      return process.env.COMSPEC || 'powershell.exe'
+    }
+    return process.env.SHELL || '/bin/bash'
+  }
+
+  /**
+   * 执行命令并返回结果
+   * @param command 要执行的命令
+   * @param cwd 工作目录（可选）
+   * @param timeout 超时时间（毫秒），默认 30000
+   */
+  execute(
+    command: string,
+    cwd?: string,
+    timeout: number = 30000
+  ): Promise<CommandResult> {
+    const id = `exec_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
+    const startTime = Date.now()
+    const shell = this.getDefaultShell()
+    const workDir = cwd || os.homedir()
+
+    return new Promise((resolve) => {
+      // 根据 shell 类型构建参数
+      const shellArgs = process.platform === 'win32'
+        ? ['-Command', command]  // PowerShell
+        : ['-c', command]        // Bash/Zsh
+
+      const proc = spawn(shell, shellArgs, {
+        cwd: workDir,
+        env: {
+          ...process.env,
+          TERM: 'xterm-256color'
+        },
+        shell: false
+      })
+
+      let output = ''
+      let errorOutput = ''
+
+      // 收集 stdout
+      proc.stdout?.on('data', (data: Buffer) => {
+        output += data.toString()
+      })
+
+      // 收集 stderr
+      proc.stderr?.on('data', (data: Buffer) => {
+        errorOutput += data.toString()
+      })
+
+      // 设置超时
+      const timeoutId = setTimeout(() => {
+        proc.kill('SIGTERM')
+        this.executions.delete(id)
+        resolve({
+          output: output + errorOutput,
+          exitCode: -1,
+          duration: Date.now() - startTime,
+          aborted: true
+        })
+      }, timeout)
+
+      // 保存执行记录
+      this.executions.set(id, {
+        process: proc,
+        resolve,
+        startTime,
+        output: '',
+        timeoutId
+      })
+
+      // 进程结束
+      proc.on('close', (code) => {
+        clearTimeout(timeoutId)
+        this.executions.delete(id)
+
+        // 合并输出，优先显示 stdout，如果为空则显示 stderr
+        const finalOutput = output || errorOutput
+
+        resolve({
+          output: this.cleanOutput(finalOutput),
+          exitCode: code ?? 0,
+          duration: Date.now() - startTime
+        })
+      })
+
+      // 进程错误
+      proc.on('error', (err) => {
+        clearTimeout(timeoutId)
+        this.executions.delete(id)
+        resolve({
+          output: `执行错误: ${err.message}`,
+          exitCode: -1,
+          duration: Date.now() - startTime
+        })
+      })
+    })
+  }
+
+  /**
+   * 清理输出
+   */
+  private cleanOutput(output: string): string {
+    return output
+      // 移除 ANSI 转义序列
+      .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+      // 移除回车符
+      .replace(/\r/g, '')
+      // 移除开头和结尾的空白
+      .trim()
+  }
+
+  /**
+   * 中止所有正在执行的命令
+   */
+  abortAll(): void {
+    this.executions.forEach((exec, id) => {
+      if (exec.timeoutId) {
+        clearTimeout(exec.timeoutId)
+      }
+      exec.process.kill('SIGTERM')
+      exec.resolve({
+        output: exec.output,
+        exitCode: -1,
+        duration: Date.now() - exec.startTime,
+        aborted: true
+      })
+      this.executions.delete(id)
+    })
+  }
+}
+
