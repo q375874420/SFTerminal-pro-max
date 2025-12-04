@@ -53,11 +53,22 @@ const isAgentRunning = computed(() => {
 })
 
 const agentSteps = computed(() => {
-  return agentState.value?.steps || []
+  const steps = agentState.value?.steps || []
+  // 过滤掉 "message" 和 "thinking" 类型，只显示工具调用相关的步骤
+  return steps.filter(step => 
+    step.type === 'tool_call' || 
+    step.type === 'tool_result' || 
+    step.type === 'error' ||
+    step.type === 'confirm'
+  )
 })
 
 const pendingConfirm = computed(() => {
   return agentState.value?.pendingConfirm
+})
+
+const agentFinalResult = computed(() => {
+  return agentState.value?.finalResult
 })
 
 const hasAiConfig = computed(() => configStore.hasAiConfig)
@@ -777,38 +788,18 @@ const runAgent = async () => {
       } as { ptyId: string; terminalOutput: string[]; systemInfo: { os: string; shell: string }; historyMessages?: { role: string; content: string }[] }
     )
 
-    // 标记 Agent 已完成
+    // 标记 Agent 已完成，设置最终结果（在步骤块之后显示）
     terminalStore.setAgentRunning(tabId, false)
 
     if (!result.success) {
-      // 添加错误消息（独立消息块）
-      const errorMessage: AiMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `❌ Agent 执行失败: ${result.error}`,
-        timestamp: new Date()
-      }
-      terminalStore.addAiMessage(tabId, errorMessage)
+      terminalStore.setAgentFinalResult(tabId, `❌ Agent 执行失败: ${result.error}`)
     } else if (result.result) {
-      // 添加完成消息（独立消息块）
-      const completeMessage: AiMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: result.result,
-        timestamp: new Date()
-      }
-      terminalStore.addAiMessage(tabId, completeMessage)
+      terminalStore.setAgentFinalResult(tabId, result.result)
     }
   } catch (error) {
     console.error('Agent 运行失败:', error)
     terminalStore.setAgentRunning(tabId, false)
-    const errorMessage: AiMessage = {
-      id: (Date.now() + 1).toString(),
-      role: 'assistant',
-      content: `❌ Agent 运行出错: ${error instanceof Error ? error.message : '未知错误'}`,
-      timestamp: new Date()
-    }
-    terminalStore.addAiMessage(tabId, errorMessage)
+    terminalStore.setAgentFinalResult(tabId, `❌ Agent 运行出错: ${error instanceof Error ? error.message : '未知错误'}`)
   }
 
   await scrollToBottom()
@@ -1158,6 +1149,15 @@ onUnmounted(() => {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Agent 最终回复（独立消息块，在步骤块之后） -->
+        <div v-if="agentMode && agentFinalResult" class="message assistant">
+          <div class="message-wrapper">
+            <div class="message-content">
+              <div class="markdown-content" v-html="renderMarkdown(agentFinalResult)"></div>
             </div>
           </div>
         </div>
