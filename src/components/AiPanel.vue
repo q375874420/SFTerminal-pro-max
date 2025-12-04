@@ -1031,6 +1031,82 @@ const refreshHostProfile = async () => {
   }
 }
 
+// 总结 Agent 任务中的关键发现
+const summarizeAgentFindings = async (hostId: string) => {
+  const history = agentState.value?.history || []
+  const currentSteps = agentState.value?.steps || []
+  
+  // 收集最近的 Agent 交互内容
+  const recentInteractions: string[] = []
+  
+  // 添加历史任务
+  for (const item of history.slice(-3)) {  // 最近 3 个历史任务
+    recentInteractions.push(`任务: ${item.userTask}\n结果: ${item.finalResult}`)
+  }
+  
+  // 添加当前任务步骤
+  const currentTaskSteps = currentSteps.filter(s => 
+    s.type === 'tool_result' || s.type === 'message'
+  ).slice(-10)  // 最近 10 个步骤
+  
+  for (const step of currentTaskSteps) {
+    if (step.toolResult) {
+      recentInteractions.push(`命令输出: ${step.toolResult.substring(0, 500)}`)
+    } else if (step.content && step.type === 'message') {
+      recentInteractions.push(`AI 分析: ${step.content.substring(0, 300)}`)
+    }
+  }
+  
+  if (recentInteractions.length === 0) return
+  
+  // 让 AI 提取关键静态信息
+  try {
+    const prompt = `请从以下 Agent 交互记录中提取值得记住的**静态信息**。
+
+只提取这类信息：
+- 配置文件路径（如 nginx 配置在 /etc/nginx/）
+- 日志目录位置
+- 重要服务的安装路径
+- 自定义脚本位置
+- 特殊的系统配置
+
+不要提取：
+- 端口状态、进程信息等动态数据
+- 磁盘/内存使用率
+- 临时状态信息
+
+交互记录：
+${recentInteractions.join('\n\n')}
+
+如果有值得记住的静态信息，每条一行输出，格式如：
+- nginx 配置在 /etc/nginx/conf.d/
+- 应用日志在 /var/log/myapp/
+
+如果没有值得记住的信息，只输出：无`
+
+    const response = await window.electronAPI.ai.chat([
+      { role: 'user', content: prompt }
+    ])
+    
+    if (response && !response.includes('无') && response.trim()) {
+      // 解析并保存每条信息
+      const lines = response.split('\n')
+        .map(l => l.replace(/^[-•]\s*/, '').trim())
+        .filter(l => l && l.length > 5 && l.length < 100)
+      
+      for (const note of lines) {
+        await window.electronAPI.hostProfile.addNote(hostId, note)
+      }
+      
+      if (lines.length > 0) {
+        console.log('[HostProfile] AI 总结了关键信息:', lines)
+      }
+    }
+  } catch (e) {
+    console.warn('[HostProfile] AI 总结失败:', e)
+  }
+}
+
 // 自动探测主机信息（首次加载时）
 const autoProbeHostProfile = async (): Promise<void> => {
   try {
@@ -1135,6 +1211,11 @@ const runAgent = async () => {
     
     // 保存 Agent 记录
     saveAgentRecord(tabId, message, startTime, result.success ? 'completed' : 'failed', finalContent)
+    
+    // Agent 完成后自动总结关键信息并更新记忆（后台执行）
+    summarizeAgentFindings(hostId).catch(e => {
+      console.warn('[Agent] 总结记忆失败:', e)
+    })
   } catch (error) {
     console.error('Agent 运行失败:', error)
     terminalStore.setAgentRunning(tabId, false)
