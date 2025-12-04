@@ -105,31 +105,69 @@ const lastError = computed(() => {
   return terminalStore.activeTab?.lastError
 })
 
+// 估算文本的 token 数量
+// 中文：约 1.5 字符/token，英文：约 4 字符/token
+function estimateTokens(text: string): number {
+  if (!text) return 0
+  
+  // 统计中文字符数量
+  const chineseChars = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length
+  // 非中文字符数量
+  const otherChars = text.length - chineseChars
+  
+  // 中文约 1.5 字符/token，英文约 4 字符/token
+  return Math.ceil(chineseChars / 1.5 + otherChars / 4)
+}
+
 // 计算上下文使用情况
 const contextStats = computed(() => {
-  const msgs = messages.value.filter(msg => !msg.content.includes('中...'))
-  let totalChars = msgs.reduce((sum, msg) => sum + msg.content.length, 0)
+  let totalTokens = 0
+  let messageCount = 0
   
-  // 加上 Agent 步骤的字符数
-  if (agentSteps.value.length > 0) {
-    const stepsChars = agentSteps.value.reduce((sum, step) => {
-      return sum + step.content.length + (step.toolResult?.length || 0)
-    }, 0)
-    totalChars += stepsChars
+  if (agentMode.value) {
+    // Agent 模式：计算 Agent 独立的上下文
+    // System prompt 约 800 tokens（包含工具定义）
+    totalTokens += 800
+    
+    // 用户任务
+    if (agentUserTask.value) {
+      totalTokens += estimateTokens(agentUserTask.value)
+      messageCount++
+    }
+    
+    // Agent 步骤（包含完整步骤，不只是过滤后的）
+    const allSteps = agentState.value?.steps || []
+    for (const step of allSteps) {
+      totalTokens += estimateTokens(step.content)
+      if (step.toolResult) {
+        totalTokens += estimateTokens(step.toolResult)
+      }
+    }
+    
+    // 最终结果
+    if (agentFinalResult.value) {
+      totalTokens += estimateTokens(agentFinalResult.value)
+    }
+  } else {
+    // 普通对话模式
+    // System prompt 约 300 tokens
+    totalTokens += 300
+    
+    const msgs = messages.value.filter(msg => !msg.content.includes('中...'))
+    messageCount = msgs.length
+    
+    for (const msg of msgs) {
+      totalTokens += estimateTokens(msg.content)
+      // 每条消息有额外的格式开销（role, 分隔符等）约 4 tokens
+      totalTokens += 4
+    }
   }
-  
-  // 粗略估算 token 数：中文约 1-2 字符/token，英文约 4 字符/token
-  // 这里用 2 作为平均值
-  const estimatedTokens = Math.ceil(totalChars / 2)
-  // 加上 system prompt 的估算（约 200 tokens）
-  const totalTokens = estimatedTokens + 200
   
   // 从当前 AI 配置获取上下文长度，默认 8000
   const maxTokens = activeAiProfile.value?.contextLength || 8000
   
   return {
-    messageCount: msgs.length,
-    charCount: totalChars,
+    messageCount,
     tokenEstimate: totalTokens,
     maxTokens,
     percentage: Math.min(100, Math.round((totalTokens / maxTokens) * 100))
