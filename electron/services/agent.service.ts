@@ -1,5 +1,6 @@
 import { AiService, AiMessage, ToolDefinition, ToolCall, ChatWithToolsResult } from './ai.service'
 import { CommandExecutorService, CommandResult } from './command-executor.service'
+import { PtyService } from './pty.service'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -10,6 +11,7 @@ export interface AgentConfig {
   commandTimeout: number        // 命令超时时间（毫秒），默认 30000
   autoExecuteSafe: boolean      // safe 命令自动执行
   autoExecuteModerate: boolean  // moderate 命令是否自动执行
+  strictMode: boolean           // 严格模式：所有命令都需确认，在终端执行
 }
 
 // 命令风险等级
@@ -70,6 +72,7 @@ interface AgentRun {
 export class AgentService {
   private aiService: AiService
   private commandExecutor: CommandExecutorService
+  private ptyService: PtyService
   private runs: Map<string, AgentRun> = new Map()
 
   // 事件回调
@@ -84,11 +87,13 @@ export class AgentService {
     maxSteps: 20,
     commandTimeout: 30000,
     autoExecuteSafe: true,
-    autoExecuteModerate: true
+    autoExecuteModerate: true,
+    strictMode: false           // 默认关闭严格模式
   }
 
-  constructor(aiService: AiService) {
+  constructor(aiService: AiService, ptyService: PtyService) {
     this.aiService = aiService
+    this.ptyService = ptyService
     this.commandExecutor = new CommandExecutorService()
   }
 
@@ -330,8 +335,9 @@ export class AgentService {
           }
         }
 
-        // 检查是否需要确认
-        const needConfirm = 
+        // 严格模式：所有命令都需要确认
+        // 普通模式：根据风险级别决定
+        const needConfirm = config.strictMode ||
           (riskLevel === 'dangerous') ||
           (riskLevel === 'moderate' && !config.autoExecuteModerate) ||
           (riskLevel === 'safe' && !config.autoExecuteSafe)
@@ -344,7 +350,40 @@ export class AgentService {
           }
         }
 
-        // 执行命令（在后台静默执行，不干扰用户终端）
+        // 严格模式：在终端中执行（用户可见）
+        // 普通模式：后台静默执行
+        if (config.strictMode) {
+          try {
+            const result = await this.ptyService.executeInTerminal(
+              ptyId,
+              command,
+              config.commandTimeout
+            )
+
+            this.addStep(agentId, {
+              type: 'tool_result',
+              content: `命令执行完成 (耗时: ${result.duration}ms)`,
+              toolName: name,
+              toolResult: result.output
+            })
+
+            return {
+              success: true,
+              output: result.output
+            }
+          } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : '命令执行失败'
+            this.addStep(agentId, {
+              type: 'tool_result',
+              content: `命令执行失败: ${errorMsg}`,
+              toolName: name,
+              toolResult: errorMsg
+            })
+            return { success: false, output: '', error: errorMsg }
+          }
+        }
+
+        // 普通模式：后台静默执行
         try {
           const result: CommandResult = await this.commandExecutor.execute(
             command,

@@ -374,5 +374,79 @@ export class PtyService {
   isCommandPending(id: string): boolean {
     return this.pendingCommands.has(id)
   }
+
+  /**
+   * 在终端执行命令并收集输出（严格模式用）
+   * 不使用标记，通过检测输出停止来判断命令完成
+   */
+  executeInTerminal(
+    id: string, 
+    command: string, 
+    timeout: number = 30000,
+    silenceTimeout: number = 2000  // 输出停止后等待的时间
+  ): Promise<{ output: string; duration: number }> {
+    return new Promise((resolve) => {
+      const instance = this.instances.get(id)
+      if (!instance) {
+        resolve({ output: '终端实例不存在', duration: 0 })
+        return
+      }
+
+      const startTime = Date.now()
+      let output = ''
+      let silenceTimer: NodeJS.Timeout | null = null
+      let timeoutTimer: NodeJS.Timeout | null = null
+      let resolved = false
+
+      const cleanup = () => {
+        if (silenceTimer) clearTimeout(silenceTimer)
+        if (timeoutTimer) clearTimeout(timeoutTimer)
+        // 移除输出监听器
+        const idx = instance.dataCallbacks.indexOf(outputHandler)
+        if (idx !== -1) {
+          instance.dataCallbacks.splice(idx, 1)
+        }
+      }
+
+      const finish = () => {
+        if (resolved) return
+        resolved = true
+        cleanup()
+        resolve({
+          output: output.trim(),
+          duration: Date.now() - startTime
+        })
+      }
+
+      // 重置静默计时器（每次收到输出时）
+      const resetSilenceTimer = () => {
+        if (silenceTimer) clearTimeout(silenceTimer)
+        silenceTimer = setTimeout(finish, silenceTimeout)
+      }
+
+      // 输出处理器
+      const outputHandler = (data: string) => {
+        output += data
+        resetSilenceTimer()
+      }
+
+      // 添加输出监听器
+      instance.dataCallbacks.push(outputHandler)
+
+      // 设置总超时
+      timeoutTimer = setTimeout(() => {
+        if (!resolved) {
+          output += '\n[命令执行超时]'
+          finish()
+        }
+      }, timeout)
+
+      // 发送命令（添加换行符执行）
+      instance.pty.write(command + '\n')
+      
+      // 启动静默计时器
+      resetSilenceTimer()
+    })
+  }
 }
 

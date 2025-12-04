@@ -93,6 +93,7 @@ export interface AgentConfig {
   commandTimeout?: number
   autoExecuteSafe?: boolean
   autoExecuteModerate?: boolean
+  strictMode?: boolean           // 严格模式：所有命令都需确认，在终端执行
 }
 
 export interface PendingConfirmation {

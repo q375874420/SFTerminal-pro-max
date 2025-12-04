@@ -19,6 +19,7 @@ const messagesRef = ref<HTMLDivElement | null>(null)
 
 // Agent 模式状态
 const agentMode = ref(false)
+const strictMode = ref(true)       // 严格模式（默认开启）
 const stepsCollapsed = ref(false)  // 步骤是否折叠
 
 // 清理事件监听的函数
@@ -810,14 +811,15 @@ const runAgent = async () => {
   terminalStore.setAgentRunning(tabId, true, undefined, message)
 
   try {
-    // 调用 Agent API
+    // 调用 Agent API，传递严格模式配置
     const result = await window.electronAPI.agent.run(
       context.ptyId,
       message,
       {
         ...context,
         historyMessages  // 添加历史对话
-      } as { ptyId: string; terminalOutput: string[]; systemInfo: { os: string; shell: string }; historyMessages?: { role: string; content: string }[] }
+      } as { ptyId: string; terminalOutput: string[]; systemInfo: { os: string; shell: string }; historyMessages?: { role: string; content: string }[] },
+      { strictMode: strictMode.value }  // 传递严格模式配置
     )
 
     // 标记 Agent 已完成，设置最终结果（在步骤块之后显示）
@@ -1034,6 +1036,13 @@ onUnmounted(() => {
           🤖 Agent
         </button>
       </div>
+      <!-- 严格模式开关（Agent 模式下显示） -->
+      <div v-if="agentMode" class="strict-mode-toggle" @click="strictMode = !strictMode">
+        <span class="toggle-label">严格</span>
+        <span class="toggle-switch" :class="{ active: strictMode }">
+          <span class="toggle-dot"></span>
+        </span>
+      </div>
 
       <!-- 系统环境信息 -->
       <div v-if="currentSystemInfo" class="system-info-bar">
@@ -1123,11 +1132,18 @@ onUnmounted(() => {
             <li>「在当前目录创建一个 backup 文件夹并备份所有配置文件」</li>
           </ul>
 
+          <p class="welcome-section-title">🔒 严格模式 <span class="strict-badge">{{ strictMode ? '已开启' : '已关闭' }}</span></p>
+          <ul>
+            <li v-if="strictMode"><strong>每个命令都需要你确认</strong>后才会执行</li>
+            <li v-if="strictMode">命令在终端中执行，你可以看到完整输入输出</li>
+            <li v-if="!strictMode">安全命令会自动执行，只有危险命令需要确认</li>
+            <li v-if="!strictMode">命令在后台静默执行，结果显示在步骤中</li>
+          </ul>
+
           <p class="welcome-section-title">⚠️ 安全提示</p>
           <ul>
-            <li>危险命令（如删除、修改系统文件）会请求确认</li>
+            <li>危险命令（如删除、修改系统文件）始终需要确认</li>
             <li>你可以随时点击「停止」中止 Agent 执行</li>
-            <li>所有命令都在终端中可见执行</li>
           </ul>
         </div>
         <!-- 普通对话模式的消息 -->
@@ -1637,6 +1653,17 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
+.strict-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  background: var(--accent-primary);
+  color: #fff;
+  border-radius: 4px;
+  margin-left: 6px;
+}
+
 .message {
   margin-bottom: 12px;
 }
@@ -1999,6 +2026,57 @@ onUnmounted(() => {
   background: var(--accent-primary);
   color: #fff;
   border-color: var(--accent-primary);
+}
+
+/* 严格模式开关 */
+.strict-mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+
+.strict-mode-toggle:hover {
+  background: var(--bg-tertiary);
+}
+
+.toggle-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.toggle-switch {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  background: var(--bg-tertiary);
+  border-radius: 9px;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s;
+}
+
+.toggle-switch.active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.toggle-dot {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.toggle-switch.active .toggle-dot {
+  transform: translateX(14px);
 }
 
 /* Agent 步骤（融入对话） */
