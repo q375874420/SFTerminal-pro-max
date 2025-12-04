@@ -28,6 +28,9 @@ let resizeObserver: ResizeObserver | null = null
 let isDisposed = false
 let isPasting = false
 let keyDownHandler: ((event: KeyboardEvent) => void) | null = null
+let resizeTimeout: ReturnType<typeof setTimeout> | null = null
+let dprMediaQuery: MediaQueryList | null = null
+let dprChangeHandler: (() => void) | null = null
 
 // 右键菜单状态
 const contextMenu = ref({
@@ -170,16 +173,42 @@ onMounted(async () => {
     }
   })
 
-  // 监听窗口大小变化
-  resizeObserver = new ResizeObserver(() => {
-    if (fitAddon && props.isActive) {
-      fitAddon.fit()
-      if (terminal) {
+  // 重新适配终端大小的函数
+  const doFit = () => {
+    if (resizeTimeout) {
+      clearTimeout(resizeTimeout)
+    }
+    resizeTimeout = setTimeout(() => {
+      if (fitAddon && props.isActive && terminal && !isDisposed) {
+        fitAddon.fit()
         terminalStore.resizeTerminal(props.tabId, terminal.cols, terminal.rows)
       }
-    }
+    }, 50)
+  }
+
+  // 监听窗口大小变化（带防抖，确保最大化等动画完成后再计算）
+  resizeObserver = new ResizeObserver(() => {
+    doFit()
   })
   resizeObserver.observe(terminalRef.value)
+
+  // 监听 devicePixelRatio 变化（窗口在不同 DPI 显示器间移动时）
+  const updateDprListener = () => {
+    if (dprMediaQuery && dprChangeHandler) {
+      dprMediaQuery.removeEventListener('change', dprChangeHandler)
+    }
+    dprMediaQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+    dprMediaQuery.addEventListener('change', dprChangeHandler!)
+  }
+
+  dprChangeHandler = () => {
+    // DPI 变化时重新适配终端
+    doFit()
+    // 更新监听器以跟踪新的 DPI 值
+    updateDprListener()
+  }
+
+  updateDprListener()
 })
 
 // 清理
@@ -187,6 +216,15 @@ onUnmounted(() => {
   // 先标记为已销毁，防止后续回调执行
   isDisposed = true
   
+  if (resizeTimeout) {
+    clearTimeout(resizeTimeout)
+    resizeTimeout = null
+  }
+  if (dprMediaQuery && dprChangeHandler) {
+    dprMediaQuery.removeEventListener('change', dprChangeHandler)
+    dprMediaQuery = null
+    dprChangeHandler = null
+  }
   if (unsubscribe) {
     unsubscribe()
     unsubscribe = null
@@ -316,11 +354,12 @@ defineExpose({
 
 <template>
   <div 
-    ref="terminalRef" 
-    class="terminal" 
+    class="terminal-wrapper" 
     @contextmenu="handleContextMenu"
     @click="hideContextMenu"
-  ></div>
+  >
+    <div ref="terminalRef" class="terminal-inner"></div>
+  </div>
   
   <!-- 右键菜单 -->
   <Teleport to="body">
@@ -368,22 +407,26 @@ defineExpose({
 </template>
 
 <style scoped>
-.terminal {
+.terminal-wrapper {
   width: 100%;
   height: 100%;
   padding: 8px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
-.terminal :deep(.xterm) {
+.terminal-inner {
+  width: 100%;
   height: 100%;
+  overflow: hidden;
 }
 
-.terminal :deep(.xterm-viewport) {
-  overflow-y: auto;
+.terminal-inner :deep(.xterm) {
+  height: 100% !important;
 }
 
-.terminal :deep(.xterm-screen) {
-  height: 100%;
+.terminal-inner :deep(.xterm-viewport) {
+  overflow-y: auto !important;
 }
 
 /* 右键菜单遮罩层 */
