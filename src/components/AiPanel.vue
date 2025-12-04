@@ -55,13 +55,14 @@ const isAgentRunning = computed(() => {
 
 const agentSteps = computed(() => {
   const steps = agentState.value?.steps || []
-  // 过滤掉 "message" 和 "thinking" 类型，只显示工具调用相关的步骤
-  return steps.filter(step => 
-    step.type === 'tool_call' || 
-    step.type === 'tool_result' || 
-    step.type === 'error' ||
-    step.type === 'confirm'
-  )
+  // 显示所有步骤，包括 AI 的分析过程
+  // thinking: 初始分析
+  // message: AI 的分析和计划说明
+  // tool_call: 工具调用
+  // tool_result: 执行结果
+  // error: 错误
+  // confirm: 等待确认
+  return steps
 })
 
 const pendingConfirm = computed(() => {
@@ -1204,10 +1205,8 @@ onUnmounted(() => {
                 >
                   <span class="step-icon">{{ getStepIcon(step.type) }}</span>
                   <div class="step-content">
-                    <div class="step-text">{{ step.content }}</div>
-                    <!-- 显示命令（如果是 execute_command） -->
-                    <div v-if="step.type === 'tool_call' && step.toolArgs?.command" class="step-command">
-                      <code>{{ step.toolArgs.command }}</code>
+                    <div class="step-text" :class="{ 'step-analysis': step.type === 'message' }">
+                      {{ step.content }}
                     </div>
                     <div v-if="step.toolResult" class="step-result">
                       <pre>{{ step.toolResult }}</pre>
@@ -2195,22 +2194,16 @@ onUnmounted(() => {
 
 .step-text {
   word-break: break-word;
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
-.step-command {
-  margin-top: 4px;
-}
-
-.step-command code {
-  display: inline-block;
-  padding: 4px 8px;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 4px;
-  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
-  font-size: 11px;
-  color: var(--accent-secondary, #10b981);
-  word-break: break-all;
+/* AI 分析文本样式 */
+.step-text.step-analysis {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin: -4px 0;
 }
 
 .step-result {

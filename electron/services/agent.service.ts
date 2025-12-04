@@ -128,13 +128,9 @@ export class AgentService {
               command: {
                 type: 'string',
                 description: '要执行的 shell 命令'
-              },
-              reason: {
-                type: 'string',
-                description: '解释为什么要执行这个命令，让用户理解这一步的目的'
               }
             },
-            required: ['command', 'reason']
+            required: ['command']
           }
         }
       },
@@ -314,7 +310,6 @@ export class AgentService {
     switch (name) {
       case 'execute_command': {
         const command = args.command as string
-        const reason = args.reason as string || '执行命令'
         if (!command) {
           return { success: false, output: '', error: '命令不能为空' }
         }
@@ -322,12 +317,12 @@ export class AgentService {
         // 评估风险
         const riskLevel = this.assessCommandRisk(command)
 
-        // 添加工具调用步骤（包含执行原因）
+        // 添加工具调用步骤
         this.addStep(agentId, {
           type: 'tool_call',
-          content: reason,  // 显示执行原因而不是命令本身
+          content: `执行命令: ${command}`,
           toolName: name,
-          toolArgs: { command, reason },
+          toolArgs: { command },
           riskLevel
         })
 
@@ -730,25 +725,30 @@ export class AgentService {
 - Shell: ${shellInfo}
 
 ## 可用工具
-- execute_command: 在终端执行命令，需要提供命令和执行原因
+- execute_command: 在终端执行命令
 - get_terminal_context: 获取终端最近的输出
 - read_file: 读取文件内容
 - write_file: 写入文件
 
-## 工作原则
-1. **解释每一步**：执行任何命令前，必须用 reason 参数清楚解释为什么要执行这个命令
-2. 分步执行复杂任务，每步执行后检查结果
-3. 遇到错误时尝试诊断原因并提供解决方案
-4. 危险操作会请求用户确认
-5. 保持回复简洁，重点是完成任务
+## 工作原则（重要！）
+1. **先分析，再执行**：在调用任何工具前，先用文字说明你的分析和计划
+2. **解释上一步结果**：执行命令后，分析输出结果，说明发现了什么
+3. **说明下一步原因**：在执行下一个命令前，解释为什么需要这个命令
+4. 分步执行复杂任务，每步执行后检查结果
+5. 遇到错误时分析原因并提供解决方案
 
-## reason 参数示例
-- "查看当前目录下的文件列表，了解项目结构"
-- "检查 nginx 服务状态，确认是否正在运行"
-- "查找超过 100MB 的日志文件，以便清理磁盘空间"
-- "创建备份目录，用于存放配置文件的备份"
+## 输出格式示例
+用户：查看磁盘空间
 
-请根据用户的需求，使用合适的工具来完成任务。`
+你的回复：
+"我来检查磁盘空间使用情况。首先查看各分区的使用率。"
+[调用 execute_command: df -h]
+
+收到结果后：
+"从输出可以看到 /dev/sda1 使用了 85%，接近满了。让我看看哪些目录占用最多空间。"
+[调用 execute_command: du -sh /* 2>/dev/null | sort -rh | head -10]
+
+请根据用户的需求，使用合适的工具来完成任务。记住：每次调用工具前都要先说明分析和原因！`
   }
 
   /**
