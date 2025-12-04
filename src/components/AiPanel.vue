@@ -999,7 +999,8 @@ const refreshHostProfile = async () => {
   isProbing.value = true
   try {
     const hostId = await getHostId()
-    await probeHostProfile(hostId, activeTab.ptyId)
+    // 手动刷新时强制探测
+    await probeHostProfile(hostId, activeTab.ptyId, true)
     // 重新加载档案
     currentHostProfile.value = await window.electronAPI.hostProfile.get(hostId)
   } catch (e) {
@@ -1010,33 +1011,84 @@ const refreshHostProfile = async () => {
 }
 
 // 探测主机信息
-const probeHostProfile = async (hostId: string, ptyId: string): Promise<void> => {
+const probeHostProfile = async (hostId: string, ptyId: string, force: boolean = false): Promise<void> => {
   try {
-    // 检查是否需要探测
-    const needsProbe = await window.electronAPI.hostProfile.needsProbe(hostId)
-    if (!needsProbe) return
+    // 检查是否需要探测（除非强制）
+    if (!force) {
+      const needsProbe = await window.electronAPI.hostProfile.needsProbe(hostId)
+      if (!needsProbe) return
+    }
 
     // 获取当前系统类型
-    const activeTab = terminalStore.activeTab
-    const os = activeTab?.systemInfo?.os || 'linux'
+    // 使用简化的探测命令，用特殊标记分隔结果
+    const probeCommand = `echo "===PROBE_START==="; hostname 2>/dev/null; echo "---"; whoami 2>/dev/null; echo "---"; uname -s 2>/dev/null; echo "---"; echo $SHELL; echo "---"; (sw_vers 2>/dev/null || cat /etc/os-release 2>/dev/null | head -3); echo "---"; (command -v brew >/dev/null && echo "brew") || (command -v apt >/dev/null && echo "apt") || (command -v yum >/dev/null && echo "yum") || (command -v dnf >/dev/null && echo "dnf") || echo "unknown"; echo "---"; for cmd in git docker python3 node nginx vim; do command -v $cmd >/dev/null 2>&1 && echo $cmd; done; echo "===PROBE_END==="`
     
-    // 获取探测命令
-    const commands = await window.electronAPI.hostProfile.getProbeCommands(os)
+    // 使用 executeInTerminal 执行命令并获取输出
+    const result = await window.electronAPI.pty.executeInTerminal(ptyId, probeCommand, 10000)
     
-    // 组合成一个命令（用分号分隔）
-    const probeCommand = commands.join('; ')
+    if (!result.success) {
+      console.warn('[HostProfile] 探测命令执行失败:', result.error)
+      return
+    }
     
-    // 在终端执行探测命令
-    const result = await window.electronAPI.pty.write(ptyId, probeCommand + '\n')
+    // 提取探测结果
+    const output = result.output || ''
+    const startMarker = '===PROBE_START==='
+    const endMarker = '===PROBE_END==='
+    const startIdx = output.indexOf(startMarker)
+    const endIdx = output.indexOf(endMarker)
     
-    // 等待一小段时间让命令执行
-    await new Promise(resolve => setTimeout(resolve, 2000))
+    if (startIdx === -1 || endIdx === -1) {
+      console.warn('[HostProfile] 未找到探测标记')
+      return
+    }
     
-    // 获取终端输出
-    const output = (terminalStore.activeTab?.outputBuffer || []).join('\n')
+    const probeOutput = output.substring(startIdx + startMarker.length, endIdx)
+    const sections = probeOutput.split('---').map(s => s.trim()).filter(s => s)
     
-    // 解析探测结果
-    const probeResult = await window.electronAPI.hostProfile.parseProbeOutput(output, hostId)
+    // 解析各部分
+    const probeResult: Record<string, unknown> = {}
+    
+    if (sections[0]) probeResult.hostname = sections[0]
+    if (sections[1]) probeResult.username = sections[1]
+    if (sections[2]) {
+      const osName = sections[2].toLowerCase()
+      if (osName.includes('darwin')) probeResult.os = 'macos'
+      else if (osName.includes('linux')) probeResult.os = 'linux'
+      else probeResult.os = osName
+    }
+    if (sections[3]) {
+      const shell = sections[3]
+      if (shell.includes('zsh')) probeResult.shell = 'zsh'
+      else if (shell.includes('bash')) probeResult.shell = 'bash'
+      else if (shell.includes('fish')) probeResult.shell = 'fish'
+      else probeResult.shell = shell.split('/').pop() || shell
+    }
+    if (sections[4]) {
+      // 系统版本
+      const versionInfo = sections[4]
+      if (versionInfo.includes('ProductName')) {
+        // macOS
+        const match = versionInfo.match(/ProductName:\s*(.+?)(?:\n|$)/)
+        const verMatch = versionInfo.match(/ProductVersion:\s*(.+?)(?:\n|$)/)
+        if (match) {
+          probeResult.osVersion = `${match[1]} ${verMatch?.[1] || ''}`.trim()
+        }
+      } else if (versionInfo.includes('NAME=')) {
+        // Linux
+        const nameMatch = versionInfo.match(/NAME="?([^"\n]+)"?/)
+        const verMatch = versionInfo.match(/VERSION="?([^"\n]+)"?/)
+        if (nameMatch) {
+          probeResult.osVersion = `${nameMatch[1]} ${verMatch?.[1] || ''}`.trim()
+        }
+      }
+    }
+    if (sections[5] && sections[5] !== 'unknown') {
+      probeResult.packageManager = sections[5]
+    }
+    if (sections[6]) {
+      probeResult.installedTools = sections[6].split('\n').map(t => t.trim()).filter(t => t)
+    }
     
     // 更新主机档案
     if (Object.keys(probeResult).length > 0) {

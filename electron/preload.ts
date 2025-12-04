@@ -113,6 +113,13 @@ const electronAPI = {
     resize: (id: string, cols: number, rows: number) =>
       ipcRenderer.invoke('pty:resize', id, cols, rows),
     dispose: (id: string) => ipcRenderer.invoke('pty:dispose', id),
+    executeInTerminal: (id: string, command: string, timeout?: number) =>
+      ipcRenderer.invoke('pty:executeInTerminal', id, command, timeout) as Promise<{
+        success: boolean
+        output?: string
+        exitCode?: number
+        error?: string
+      }>,
     onData: (id: string, callback: (data: string) => void) => {
       ipcRenderer.send('pty:subscribe', id)
       const handler = (_event: Electron.IpcRendererEvent, data: string) => callback(data)

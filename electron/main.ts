@@ -117,6 +117,10 @@ ipcMain.handle('pty:resize', async (_event, id: string, cols: number, rows: numb
   ptyService.resize(id, cols, rows)
 })
 
+ipcMain.handle('pty:executeInTerminal', async (_event, id: string, command: string, timeout?: number) => {
+  return ptyService.executeInTerminal(id, command, timeout)
+})
+
 ipcMain.handle('pty:dispose', async (_event, id: string) => {
   ptyService.dispose(id)
 })
