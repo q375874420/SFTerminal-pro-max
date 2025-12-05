@@ -61,6 +61,9 @@ export async function executeTool(
     case 'get_terminal_context':
       return getTerminalContext(args, terminalOutput, executor)
 
+    case 'check_terminal_status':
+      return checkTerminalStatus(ptyId, executor)
+
     case 'send_control_key':
       return sendControlKey(ptyId, args, executor)
 
@@ -238,7 +241,8 @@ async function executeCommand(
 }
 
 /**
- * 执行限时命令（用于 top、tail -f 等持续运行的命令）
+ * 执行限时命令（用于 tail -f 等持续运行的命令）
+ * 在执行期间实时收集输出，然后返回
  */
 async function executeTimedCommand(
   ptyId: string,
@@ -247,45 +251,72 @@ async function executeTimedCommand(
   exitAction: 'ctrl_c' | 'ctrl_d' | 'q',
   executor: ToolExecutorConfig
 ): Promise<ToolResult> {
-  try {
+  return new Promise((resolve) => {
+    let output = ''
+    let dataHandler: ((data: string) => void) | null = null
+    
+    // 注册输出收集器
+    dataHandler = (data: string) => {
+      output += data
+    }
+    executor.ptyService.onData(ptyId, dataHandler)
+    
     // 发送命令
     executor.ptyService.write(ptyId, command + '\r')
     
-    // 等待指定时间收集输出
-    await new Promise(resolve => setTimeout(resolve, timeout))
-    
-    // 发送退出信号
-    const exitKeys: Record<string, string> = {
-      'ctrl_c': '\x03',
-      'ctrl_d': '\x04',
-      'q': 'q'
-    }
-    executor.ptyService.write(ptyId, exitKeys[exitAction])
-    
-    // 等待程序退出
-    await new Promise(resolve => setTimeout(resolve, 500))
-    
-    // 如果是 q，可能还需要回车或者 Ctrl+C
-    if (exitAction === 'q') {
-      executor.ptyService.write(ptyId, '\r')
-      await new Promise(resolve => setTimeout(resolve, 200))
-    }
+    // 设置超时后发送退出信号
+    setTimeout(async () => {
+      // 发送退出信号
+      const exitKeys: Record<string, string> = {
+        'ctrl_c': '\x03',
+        'ctrl_d': '\x04',
+        'q': 'q'
+      }
+      executor.ptyService.write(ptyId, exitKeys[exitAction])
+      
+      // 等待程序退出
+      await new Promise(r => setTimeout(r, 500))
+      
+      // 如果是 q，可能还需要回车
+      if (exitAction === 'q') {
+        executor.ptyService.write(ptyId, '\r')
+        await new Promise(r => setTimeout(r, 200))
+      }
 
-    executor.addStep({
-      type: 'tool_result',
-      content: `✓ 命令已执行 ${timeout/1000} 秒后自动退出`,
-      toolName: 'execute_command',
-      toolResult: `命令运行了 ${timeout/1000} 秒，请使用 get_terminal_context 查看输出`
-    })
+      // 清理输出（移除 ANSI 转义序列）
+      const cleanOutput = output
+        .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')  // CSI 序列
+        .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')  // OSC 序列
+        .replace(/\r/g, '')
+        .trim()
 
-    return { 
-      success: true, 
-      output: `命令已执行 ${timeout/1000} 秒后自动退出。请使用 get_terminal_context 工具查看终端输出。`
-    }
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : '命令执行失败'
-    return { success: false, output: '', error: errorMsg }
-  }
+      // 提取有意义的输出（移除命令回显和结尾提示符）
+      const lines = cleanOutput.split('\n')
+      const meaningfulLines = lines.filter((line, idx) => {
+        // 跳过第一行（可能是命令回显）
+        if (idx === 0 && line.includes(command.slice(0, 20))) return false
+        // 跳过空行
+        if (!line.trim()) return false
+        // 跳过提示符行
+        if (/[$#%>❯]\s*$/.test(line)) return false
+        return true
+      })
+
+      const finalOutput = meaningfulLines.join('\n').trim()
+
+      executor.addStep({
+        type: 'tool_result',
+        content: `✓ 命令执行了 ${timeout/1000} 秒`,
+        toolName: 'execute_command',
+        toolResult: finalOutput.substring(0, 500) + (finalOutput.length > 500 ? '...' : '')
+      })
+
+      resolve({ 
+        success: true, 
+        output: finalOutput || `命令执行了 ${timeout/1000} 秒，但没有输出内容。`
+      })
+    }, timeout)
+  })
 }
 
 /**
@@ -307,6 +338,69 @@ function getTerminalContext(
   })
 
   return { success: true, output: output || '(终端输出为空)' }
+}
+
+/**
+ * 检查终端状态
+ */
+async function checkTerminalStatus(
+  ptyId: string,
+  executor: ToolExecutorConfig
+): Promise<ToolResult> {
+  executor.addStep({
+    type: 'tool_call',
+    content: '检查终端状态',
+    toolName: 'check_terminal_status',
+    toolArgs: {},
+    riskLevel: 'safe'
+  })
+
+  try {
+    const status = await executor.ptyService.getTerminalStatus(ptyId)
+    
+    let statusText = ''
+    if (status.isIdle) {
+      statusText = `✓ 终端空闲，等待用户输入`
+    } else {
+      statusText = `⏳ 终端忙碌`
+      if (status.foregroundProcess) {
+        statusText += `，正在执行: ${status.foregroundProcess}`
+      }
+      if (status.foregroundPid) {
+        statusText += ` (PID: ${status.foregroundPid})`
+      }
+    }
+    
+    const details = [
+      `状态: ${status.isIdle ? '空闲' : '忙碌'}`,
+      status.stateDescription,
+      status.shellPid ? `Shell PID: ${status.shellPid}` : null,
+      status.foregroundProcess ? `前台进程: ${status.foregroundProcess}` : null,
+    ].filter(Boolean).join('\n')
+
+    executor.addStep({
+      type: 'tool_result',
+      content: statusText,
+      toolName: 'check_terminal_status',
+      toolResult: details
+    })
+
+    return { 
+      success: true, 
+      output: `${statusText}\n\n详情:\n${details}\n\n${status.isIdle 
+        ? '可以执行新命令。' 
+        : '建议：使用 send_control_key 发送 ctrl+c 中断当前命令，或等待命令完成。'}`
+    }
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : '状态检测失败'
+    executor.addStep({
+      type: 'tool_result',
+      content: `状态检测失败: ${errorMsg}`,
+      toolName: 'check_terminal_status',
+      toolResult: errorMsg
+    })
+    return { success: false, output: '', error: errorMsg }
+  }
 }
 
 /**

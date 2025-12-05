@@ -1,6 +1,10 @@
 import * as pty from 'node-pty'
 import { v4 as uuidv4 } from 'uuid'
 import * as os from 'os'
+import { exec } from 'child_process'
+import { promisify } from 'util'
+
+const execAsync = promisify(exec)
 
 export interface PtyOptions {
   cols?: number
@@ -550,5 +554,213 @@ export class PtyService {
     })
   }
 
+  /**
+   * 获取 PTY 对应的 shell PID
+   */
+  getPid(id: string): number | undefined {
+    const instance = this.instances.get(id)
+    return instance?.pty.pid
+  }
+
+  /**
+   * 获取终端状态（判断是否空闲/有命令正在执行）
+   */
+  async getTerminalStatus(id: string): Promise<TerminalStatus> {
+    const instance = this.instances.get(id)
+    if (!instance) {
+      return {
+        isIdle: false,
+        stateDescription: '终端实例不存在'
+      }
+    }
+
+    const shellPid = instance.pty.pid
+    
+    // 在 Agent 内部追踪的命令
+    if (this.pendingCommands.has(id)) {
+      return {
+        isIdle: false,
+        shellPid,
+        stateDescription: 'Agent 正在执行命令'
+      }
+    }
+
+    try {
+      if (process.platform === 'darwin') {
+        return await this.getTerminalStatusMacOS(shellPid)
+      } else if (process.platform === 'linux') {
+        return await this.getTerminalStatusLinux(shellPid)
+      } else {
+        return {
+          isIdle: true,
+          shellPid,
+          stateDescription: 'Windows 平台暂不支持详细状态检测'
+        }
+      }
+    } catch (error) {
+      console.error('[PtyService] 获取终端状态失败:', error)
+      return {
+        isIdle: true,
+        shellPid,
+        stateDescription: '状态检测失败，假设空闲'
+      }
+    }
+  }
+
+  /**
+   * macOS 终端状态检测
+   */
+  private async getTerminalStatusMacOS(shellPid: number): Promise<TerminalStatus> {
+    try {
+      // 获取 shell 的所有子进程
+      const { stdout } = await execAsync(
+        `ps -o pid=,stat=,comm= -p ${shellPid} && ps -o pid=,stat=,comm= --ppid ${shellPid} 2>/dev/null || ps -o pid=,stat=,comm= -g ${shellPid} 2>/dev/null`,
+        { timeout: 2000 }
+      )
+
+      const lines = stdout.trim().split('\n').filter((l: string) => l.trim())
+      
+      if (lines.length === 0) {
+        return {
+          isIdle: true,
+          shellPid,
+          stateDescription: 'Shell 进程不存在或已退出'
+        }
+      }
+
+      // 解析第一行（shell 进程本身）
+      const shellLine = lines[0].trim().split(/\s+/)
+      const shellStat = shellLine[1] || ''
+      const shellComm = shellLine[2] || 'shell'
+
+      // 检查是否有子进程（正在执行的命令）
+      if (lines.length > 1) {
+        const childLine = lines[1].trim().split(/\s+/)
+        const childPid = parseInt(childLine[0])
+        const childStat = childLine[1] || ''
+        const childComm = childLine[2] || 'unknown'
+        
+        return {
+          isIdle: false,
+          foregroundProcess: childComm,
+          foregroundPid: childPid,
+          shellPid,
+          stateDescription: `正在执行: ${childComm} (PID: ${childPid}, 状态: ${childStat})`
+        }
+      }
+
+      // 没有子进程，检查 shell 状态
+      const isIdle = shellStat.includes('S') && shellStat.includes('+')
+      
+      return {
+        isIdle,
+        foregroundProcess: shellComm,
+        foregroundPid: shellPid,
+        shellPid,
+        stateDescription: isIdle ? '空闲，等待用户输入' : `Shell 状态: ${shellStat}`
+      }
+    } catch {
+      return this.getTerminalStatusSimple(shellPid)
+    }
+  }
+
+  /**
+   * Linux 终端状态检测
+   */
+  private async getTerminalStatusLinux(shellPid: number): Promise<TerminalStatus> {
+    try {
+      const { stdout: statContent } = await execAsync(
+        `cat /proc/${shellPid}/stat 2>/dev/null`,
+        { timeout: 1000 }
+      )
+      
+      const statParts = statContent.trim().split(' ')
+      const tpgid = parseInt(statParts[7])
+      const pgrp = parseInt(statParts[4])
+
+      if (tpgid === pgrp) {
+        return {
+          isIdle: true,
+          foregroundProcess: 'shell',
+          foregroundPid: shellPid,
+          shellPid,
+          stateDescription: '空闲，等待用户输入'
+        }
+      }
+
+      try {
+        const { stdout: fgStatContent } = await execAsync(
+          `cat /proc/${tpgid}/stat 2>/dev/null`,
+          { timeout: 1000 }
+        )
+        const fgParts = fgStatContent.trim().split(' ')
+        const commMatch = fgStatContent.match(/\(([^)]+)\)/)
+        const fgComm = commMatch ? commMatch[1] : 'unknown'
+        const fgState = fgParts[2]
+
+        return {
+          isIdle: false,
+          foregroundProcess: fgComm,
+          foregroundPid: tpgid,
+          shellPid,
+          stateDescription: `正在执行: ${fgComm} (PID: ${tpgid}, 状态: ${fgState})`
+        }
+      } catch {
+        return {
+          isIdle: false,
+          foregroundPid: tpgid,
+          shellPid,
+          stateDescription: `有命令正在执行 (前台进程组: ${tpgid})`
+        }
+      }
+    } catch {
+      return this.getTerminalStatusSimple(shellPid)
+    }
+  }
+
+  /**
+   * 简单的终端状态检测（回退方案）
+   */
+  private async getTerminalStatusSimple(shellPid: number): Promise<TerminalStatus> {
+    try {
+      const { stdout } = await execAsync(
+        `pgrep -P ${shellPid} 2>/dev/null || echo ""`,
+        { timeout: 1000 }
+      )
+      
+      const childPids = stdout.trim().split('\n').filter((l: string) => l.trim())
+      
+      if (childPids.length > 0) {
+        return {
+          isIdle: false,
+          shellPid,
+          stateDescription: `有 ${childPids.length} 个子进程正在运行`
+        }
+      }
+      
+      return {
+        isIdle: true,
+        shellPid,
+        stateDescription: '空闲，等待用户输入'
+      }
+    } catch {
+      return {
+        isIdle: true,
+        shellPid,
+        stateDescription: '状态未知，假设空闲'
+      }
+    }
+  }
+}
+
+/**
+ * 终端状态信息
+ */
+export interface TerminalStatus {
+  isIdle: boolean
+  foregroundProcess?: string
+  foregroundPid?: number
+  stateDescription: string
+  shellPid?: number
 }
 

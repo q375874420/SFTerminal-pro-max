@@ -103,27 +103,78 @@ export function analyzeCommand(command: string): CommandHandlingInfo {
     }
   }
 
-  // ==================== 限时执行的命令（执行一段时间后自动退出）====================
+  // ==================== 自动转换为非交互式版本 ====================
   
-  // top/htop → 执行 3 秒后 Ctrl+C，足够获取一次刷新的数据
-  if (['top', 'htop', 'btop', 'nmon', 'iotop', 'iftop'].includes(cmdName)) {
+  // top → 使用非交互式模式获取一次快照
+  if (cmdName === 'top') {
+    // macOS 和 Linux 的 top 参数不同
+    // macOS: top -l 1 (list mode, 1 sample)
+    // Linux: top -bn1 (batch mode, 1 iteration)
+    // 我们生成一个兼容命令，让 shell 自己判断
+    const fixedCommand = `(top -bn1 2>/dev/null || top -l 1 -n 0 2>/dev/null) | head -30`
     return {
-      strategy: 'timed_execution',
-      reason: `${cmdName} 是实时监控程序`,
-      suggestedTimeout: 3000,
-      timeoutAction: 'ctrl_c',
-      hint: '将执行 3 秒后自动退出，获取一次快照'
+      strategy: 'auto_fix',
+      reason: 'top 是全屏程序，退出后会清屏',
+      fixedCommand,
+      hint: '已转换为非交互式模式 (top -bn1 或 top -l 1)'
     }
   }
 
-  // watch 命令 → 执行 5 秒（获取 1-2 次刷新）
-  if (/^watch\s+/.test(cmdLower)) {
+  // htop → 没有非交互式模式，用 ps 替代
+  if (cmdName === 'htop' || cmdName === 'btop') {
+    const fixedCommand = `echo "=== CPU/内存占用 TOP 10 ===" && ps aux --sort=-%cpu 2>/dev/null | head -11 || ps aux -r | head -11`
     return {
-      strategy: 'timed_execution',
-      reason: 'watch 会持续刷新',
-      suggestedTimeout: 5000,
-      timeoutAction: 'ctrl_c',
-      hint: '将执行 5 秒后自动退出'
+      strategy: 'auto_fix',
+      reason: `${cmdName} 是全屏程序，无非交互式模式`,
+      fixedCommand,
+      hint: '已替换为 ps aux 查看进程'
+    }
+  }
+
+  // iotop → 用 iostat 替代
+  if (cmdName === 'iotop') {
+    const fixedCommand = `iostat -x 1 2 2>/dev/null || echo "iostat 未安装，尝试使用 sar" && sar -d 1 1 2>/dev/null || echo "请安装 sysstat 包"`
+    return {
+      strategy: 'auto_fix',
+      reason: 'iotop 是全屏程序',
+      fixedCommand,
+      hint: '已替换为 iostat'
+    }
+  }
+
+  // iftop → 用 ss 或 netstat 替代
+  if (cmdName === 'iftop') {
+    const fixedCommand = `ss -tunp 2>/dev/null | head -20 || netstat -tunp 2>/dev/null | head -20`
+    return {
+      strategy: 'auto_fix',
+      reason: 'iftop 是全屏程序',
+      fixedCommand,
+      hint: '已替换为 ss/netstat 查看网络连接'
+    }
+  }
+
+  // nmon → 用 vmstat 替代
+  if (cmdName === 'nmon') {
+    const fixedCommand = `echo "=== 系统状态 ===" && vmstat 1 3 && echo "=== 内存 ===" && free -h 2>/dev/null || vm_stat`
+    return {
+      strategy: 'auto_fix',
+      reason: 'nmon 是全屏程序',
+      fixedCommand,
+      hint: '已替换为 vmstat + free'
+    }
+  }
+
+  // watch 命令 → 直接执行被监控的命令一次
+  if (/^watch\s+/.test(cmdLower)) {
+    // 提取 watch 后面的实际命令
+    const watchedCmd = cmd.replace(/^watch\s+(-n\s*\d+\s+)?(-d\s+)?/i, '').trim()
+    if (watchedCmd) {
+      return {
+        strategy: 'auto_fix',
+        reason: 'watch 会持续刷新',
+        fixedCommand: watchedCmd,
+        hint: `已移除 watch，直接执行: ${watchedCmd}`
+      }
     }
   }
 

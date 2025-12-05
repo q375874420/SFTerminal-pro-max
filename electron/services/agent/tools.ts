@@ -12,13 +12,13 @@ export function getAgentTools(): ToolDefinition[] {
       type: 'function',
       function: {
         name: 'execute_command',
-        description: '在当前终端执行 shell 命令。注意：不支持交互式命令（如vim/top/watch/tail -f），这些命令会被自动拒绝。',
+        description: '在当前终端执行 shell 命令。支持大部分命令，包括 top/htop/watch/tail -f 等（会自动限时执行）。仅 vim/nano 等编辑器不支持（请用 write_file 工具）。',
         parameters: {
           type: 'object',
           properties: {
             command: {
               type: 'string',
-              description: '要执行的 shell 命令（不能是交互式命令）'
+              description: '要执行的 shell 命令'
             }
           },
           required: ['command']
@@ -28,8 +28,19 @@ export function getAgentTools(): ToolDefinition[] {
     {
       type: 'function',
       function: {
+        name: 'check_terminal_status',
+        description: '检查终端当前状态：是否空闲（等待输入）还是有命令正在执行。在执行命令前或命令超时后调用，可以判断终端是否卡住。',
+        parameters: {
+          type: 'object',
+          properties: {}
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
         name: 'get_terminal_context',
-        description: '获取终端最近的输出内容，用于了解当前终端状态和之前命令的执行结果。如果之前的命令超时或失败，可以调用此工具查看终端当前的实际输出。',
+        description: '获取终端最近的输出内容，用于查看命令执行结果或当前终端显示内容。',
         parameters: {
           type: 'object',
           properties: {
@@ -45,14 +56,14 @@ export function getAgentTools(): ToolDefinition[] {
       type: 'function',
       function: {
         name: 'send_control_key',
-        description: '向终端发送控制键，用于中断当前运行的命令或程序。当检测到命令卡住、超时、或需要退出交互式程序时使用。',
+        description: '向终端发送控制键。当终端有命令卡住或需要退出程序时使用。建议先用 check_terminal_status 确认终端状态。',
         parameters: {
           type: 'object',
           properties: {
             key: {
               type: 'string',
               enum: ['ctrl+c', 'ctrl+d', 'ctrl+z', 'enter', 'q'],
-              description: 'ctrl+c: 中断当前命令; ctrl+d: 发送EOF/退出; ctrl+z: 暂停到后台; enter: 发送回车; q: 发送q键(退出less/more等)'
+              description: 'ctrl+c: 中断命令; ctrl+d: 发送EOF; ctrl+z: 暂停; enter: 回车; q: 退出分页器'
             }
           },
           required: ['key']
