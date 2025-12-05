@@ -69,10 +69,7 @@ const {
   scrollToBottom,
   scrollToBottomIfNeeded,
   // 其他方法
-  getTerminalInfo,
   sendMessage,
-  explainCommand,
-  generateCommand,
   stopGeneration,
   diagnoseError,
   analyzeSelection,
