@@ -580,9 +580,13 @@ onMounted(() => {
             
             <!-- 最终结果 -->
             <div v-if="group.finalResult" class="message assistant">
-              <div class="message-wrapper">
-                <div class="message-content">
-                  <div class="markdown-content" v-html="renderMarkdown(group.finalResult)"></div>
+              <div class="message-wrapper agent-final-wrapper">
+                <div class="message-content agent-final-content" :class="{ 'is-error': group.finalResult.startsWith('❌') }">
+                  <div class="agent-final-header">
+                    <span class="final-icon">{{ group.finalResult.startsWith('❌') ? '❌' : '✅' }}</span>
+                    <span class="final-title">{{ group.finalResult.startsWith('❌') ? '任务失败' : '任务完成' }}</span>
+                  </div>
+                  <div class="agent-final-body markdown-content" v-html="renderMarkdown(group.finalResult.replace(/^[❌✅]\s*(Agent\s*(执行失败|运行出错)[:\s]*)?/, ''))"></div>
                 </div>
               </div>
             </div>
@@ -2045,29 +2049,113 @@ onMounted(() => {
   margin-top: 10px;
 }
 
-/* Agent 最终回复 */
-.agent-final-result {
-  margin-top: 12px;
+/* Agent 最终回复 - 美化样式 */
+.agent-final-wrapper {
+  background: transparent !important;
 }
 
-.final-result-divider {
-  height: 1px;
-  background: linear-gradient(to right, var(--accent-primary), transparent);
-  margin-bottom: 12px;
+.agent-final-content {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
 }
 
-.final-result-content {
+.agent-final-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: rgba(16, 185, 129, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* 失败状态的样式 */
+.agent-final-content.is-error .agent-final-header {
+  background: rgba(244, 67, 54, 0.1);
+}
+
+.agent-final-content.is-error {
+  border-color: rgba(244, 67, 54, 0.2);
+}
+
+.final-icon {
+  font-size: 16px;
+}
+
+.final-title {
+  color: var(--text-primary);
+}
+
+.agent-final-body {
+  padding: 12px 14px;
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-primary);
 }
 
-.final-result-content :deep(p) {
-  margin: 0 0 8px;
+.agent-final-body :deep(p) {
+  margin: 4px 0;
 }
 
-.final-result-content :deep(p:last-child) {
+.agent-final-body :deep(p:first-child) {
+  margin-top: 0;
+}
+
+.agent-final-body :deep(p:last-child) {
   margin-bottom: 0;
+}
+
+.agent-final-body :deep(strong) {
+  color: var(--accent-primary);
+}
+
+.agent-final-body :deep(blockquote) {
+  margin: 8px 0;
+  padding: 10px 14px;
+  border-left: 3px solid #10b981;
+  background: rgba(16, 185, 129, 0.08);
+  border-radius: 0 6px 6px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.agent-final-body :deep(blockquote p) {
+  margin: 0;
+}
+
+.agent-final-body :deep(ul),
+.agent-final-body :deep(ol) {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.agent-final-body :deep(li) {
+  margin: 4px 0;
+}
+
+.agent-final-body :deep(code) {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.agent-final-body :deep(pre) {
+  margin: 8px 0;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.agent-final-body :deep(pre code) {
+  background: transparent;
+  padding: 0;
 }
 
 .agent-running-dot {
