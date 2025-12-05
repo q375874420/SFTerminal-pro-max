@@ -17,6 +17,21 @@ import type { AiMessage, AgentStep } from '../stores/terminal'
 const inputText = ref('')
 const messagesRef = ref<HTMLDivElement | null>(null)
 
+// 文档上传状态
+interface ParsedDocument {
+  filename: string
+  fileType: string
+  content: string
+  fileSize: number
+  parseTime: number
+  pageCount?: number
+  metadata?: Record<string, string>
+  error?: string
+}
+
+const uploadedDocs = ref<ParsedDocument[]>([])
+const isUploadingDocs = ref(false)
+
 // Agent 模式状态
 const agentMode = ref(true)
 const strictMode = ref(true)       // 严格模式（默认开启）
@@ -355,12 +370,21 @@ const sendMessage = async () => {
         content: msg.content
       }))
     
+    // 获取文档上下文
+    const documentContext = await getDocumentContext()
+    
+    // 构建系统提示词（包含文档上下文）
+    let systemPrompt = getSystemPrompt()
+    if (documentContext) {
+      systemPrompt += `\n\n${documentContext}`
+    }
+    
     // 使用流式响应，传入 tabId 作为 requestId 支持多终端同时请求
     window.electronAPI.ai.chatStream(
       [
         {
           role: 'system',
-          content: getSystemPrompt()
+          content: systemPrompt
         },
         ...historyMessages
       ],
@@ -544,6 +568,71 @@ const clearMessages = () => {
     terminalStore.clearAiMessages(currentTabId.value)
     terminalStore.clearAgentState(currentTabId.value, false)  // 不保留历史
   }
+  // 清空上传的文档
+  uploadedDocs.value = []
+}
+
+// ==================== 文档上传功能 ====================
+
+// 选择并上传文档
+const selectAndUploadDocs = async () => {
+  if (isUploadingDocs.value) return
+  
+  try {
+    isUploadingDocs.value = true
+    
+    // 选择文件
+    const documentAPI = (window.electronAPI as { document: typeof window.electronAPI.document }).document
+    const { canceled, files } = await documentAPI.selectFiles()
+    if (canceled || files.length === 0) {
+      isUploadingDocs.value = false
+      return
+    }
+    
+    // 解析文档
+    const parsedDocs = await documentAPI.parseMultiple(files)
+    
+    // 添加到已上传列表（追加而非替换）
+    uploadedDocs.value = [...uploadedDocs.value, ...parsedDocs]
+    
+    // 显示解析结果摘要
+    const successCount = parsedDocs.filter((d: ParsedDocument) => !d.error).length
+    const errorCount = parsedDocs.filter((d: ParsedDocument) => d.error).length
+    
+    if (errorCount > 0) {
+      console.warn(`文档解析: ${successCount} 成功, ${errorCount} 失败`)
+    }
+  } catch (error) {
+    console.error('上传文档失败:', error)
+  } finally {
+    isUploadingDocs.value = false
+  }
+}
+
+// 移除已上传的文档
+const removeUploadedDoc = (index: number) => {
+  uploadedDocs.value.splice(index, 1)
+}
+
+// 清空所有上传的文档
+const clearUploadedDocs = () => {
+  uploadedDocs.value = []
+}
+
+// 格式化文件大小
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// 获取文档上下文（用于发送给 AI）
+const getDocumentContext = async (): Promise<string> => {
+  const validDocs = uploadedDocs.value.filter(d => !d.error && d.content)
+  if (validDocs.length === 0) return ''
+  
+  const documentAPI = (window.electronAPI as { document: typeof window.electronAPI.document }).document
+  return await documentAPI.formatAsContext(validDocs)
 }
 
 // 停止生成
@@ -1200,6 +1289,9 @@ const runAgent = async () => {
     historyMessages.push({ role: 'user', content: item.userTask })
     historyMessages.push({ role: 'assistant', content: item.finalResult })
   }
+  
+  // 获取文档上下文
+  const documentContext = await getDocumentContext()
 
   // 添加用户任务到步骤中（作为对话流的一部分）
   terminalStore.addAgentStep(tabId, {
@@ -1221,8 +1313,9 @@ const runAgent = async () => {
       {
         ...context,
         hostId,  // 主机档案 ID
-        historyMessages  // 添加历史对话
-      } as { ptyId: string; terminalOutput: string[]; systemInfo: { os: string; shell: string }; hostId?: string; historyMessages?: { role: string; content: string }[] },
+        historyMessages,  // 添加历史对话
+        documentContext   // 添加文档上下文
+      } as { ptyId: string; terminalOutput: string[]; systemInfo: { os: string; shell: string }; hostId?: string; historyMessages?: { role: string; content: string }[]; documentContext?: string },
       { strictMode: strictMode.value, commandTimeout: commandTimeout.value * 1000 }  // 传递配置（超时时间转为毫秒）
     )
 
@@ -1716,7 +1809,12 @@ watch(() => terminalStore.activeTabId, () => {
                     >
                       <span class="step-icon">{{ getStepIcon(step.type) }}</span>
                       <div class="step-content">
-                        <div class="step-text" :class="{ 'step-analysis': step.type === 'message' }">
+                        <div 
+                          v-if="step.type === 'message'" 
+                          class="step-text step-analysis markdown-content"
+                          v-html="renderMarkdown(step.content)"
+                        ></div>
+                        <div v-else class="step-text">
                           {{ step.content }}
                         </div>
                         <div v-if="step.toolResult && step.toolResult !== '已拒绝'" class="step-result">
@@ -1786,8 +1884,52 @@ watch(() => terminalStore.activeTabId, () => {
         </div>
       </div>
 
+      <!-- 已上传文档列表 -->
+      <div v-if="uploadedDocs.length > 0" class="uploaded-docs">
+        <div class="uploaded-docs-header">
+          <span class="uploaded-docs-title">📎 已上传文档 ({{ uploadedDocs.length }})</span>
+          <button class="btn-clear-docs" @click="clearUploadedDocs" title="清空所有文档">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="uploaded-docs-list">
+          <div 
+            v-for="(doc, index) in uploadedDocs" 
+            :key="index" 
+            class="uploaded-doc-item"
+            :class="{ 'has-error': doc.error }"
+          >
+            <span class="doc-icon">{{ doc.fileType === 'pdf' ? '📕' : doc.fileType === 'docx' || doc.fileType === 'doc' ? '📘' : '📄' }}</span>
+            <span class="doc-name" :title="doc.filename">{{ doc.filename }}</span>
+            <span class="doc-size">{{ formatFileSize(doc.fileSize) }}</span>
+            <span v-if="doc.error" class="doc-error" :title="doc.error">⚠️</span>
+            <button class="btn-remove-doc" @click="removeUploadedDoc(index)" title="移除">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- 输入区域 -->
       <div class="ai-input">
+        <!-- 上传按钮 -->
+        <button 
+          class="btn btn-icon upload-btn" 
+          @click="selectAndUploadDocs" 
+          :disabled="isUploadingDocs"
+          title="上传文档 (PDF/Word/文本)"
+        >
+          <svg v-if="!isUploadingDocs" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+          </svg>
+          <span v-else class="upload-spinner"></span>
+        </button>
         <textarea
           v-model="inputText"
           :placeholder="agentMode ? '描述你想让 Agent 完成的任务...' : '输入问题或描述你想要的命令...'"
@@ -2527,6 +2669,78 @@ watch(() => terminalStore.activeTabId, () => {
   color: var(--text-secondary);
 }
 
+/* 思考过程折叠区域样式 */
+.markdown-content :deep(details) {
+  margin: 12px 0;
+  border: 1px solid rgba(122, 162, 247, 0.3);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(122, 162, 247, 0.08), rgba(122, 162, 247, 0.02));
+  overflow: hidden;
+}
+
+.markdown-content :deep(details[open]) {
+  background: linear-gradient(135deg, rgba(122, 162, 247, 0.12), rgba(122, 162, 247, 0.04));
+}
+
+.markdown-content :deep(summary) {
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: #7aa2f7;
+  background: rgba(122, 162, 247, 0.1);
+  border-bottom: 1px solid rgba(122, 162, 247, 0.2);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.2s ease;
+}
+
+.markdown-content :deep(summary::-webkit-details-marker) {
+  display: none;
+}
+
+.markdown-content :deep(summary::before) {
+  content: '▶';
+  font-size: 10px;
+  transition: transform 0.2s ease;
+  color: #7aa2f7;
+}
+
+.markdown-content :deep(details[open] > summary::before) {
+  transform: rotate(90deg);
+}
+
+.markdown-content :deep(summary:hover) {
+  background: rgba(122, 162, 247, 0.2);
+}
+
+.markdown-content :deep(details > blockquote) {
+  margin: 0;
+  padding: 12px 16px;
+  border-left: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* 思考过程中的文本样式 */
+.markdown-content :deep(details > blockquote p) {
+  margin: 6px 0;
+}
+
+.markdown-content :deep(details > blockquote code) {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
 .markdown-content :deep(a) {
   color: var(--accent-primary);
   text-decoration: none;
@@ -2582,11 +2796,146 @@ watch(() => terminalStore.activeTabId, () => {
   color: var(--accent-primary);
 }
 
+/* 已上传文档列表 */
+.uploaded-docs {
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-color);
+}
+
+.uploaded-docs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.uploaded-docs-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.btn-clear-docs {
+  padding: 2px 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 3px;
+  opacity: 0.6;
+  transition: all 0.2s;
+}
+
+.btn-clear-docs:hover {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.uploaded-docs-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.uploaded-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 11px;
+  max-width: 200px;
+}
+
+.uploaded-doc-item.has-error {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.doc-icon {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.doc-name {
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+}
+
+.doc-size {
+  color: var(--text-muted);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.doc-error {
+  flex-shrink: 0;
+  cursor: help;
+}
+
+.btn-remove-doc {
+  padding: 2px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 3px;
+  opacity: 0.5;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.btn-remove-doc:hover {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
 .ai-input {
   display: flex;
   gap: 8px;
   padding: 12px;
   border-top: 1px solid var(--border-color);
+}
+
+/* 上传按钮 */
+.upload-btn {
+  align-self: flex-end;
+  padding: 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.upload-btn:hover:not(:disabled) {
+  background: var(--bg-surface);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.upload-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.upload-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--text-muted);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
 }
 
 .ai-input textarea {
@@ -2889,6 +3238,43 @@ watch(() => terminalStore.activeTabId, () => {
   padding: 8px 10px;
   border-radius: 6px;
   margin: -4px 0;
+}
+
+/* Agent 步骤中的 markdown 样式 */
+.step-text.step-analysis.markdown-content {
+  font-size: 13px;
+}
+
+.step-text.step-analysis.markdown-content :deep(p) {
+  margin: 4px 0;
+}
+
+.step-text.step-analysis.markdown-content :deep(strong) {
+  color: var(--accent-primary);
+}
+
+/* 思考过程引用块样式 */
+.step-text.step-analysis.markdown-content :deep(blockquote) {
+  margin: 8px 0;
+  padding: 10px 14px;
+  border-left: 3px solid #7aa2f7;
+  background: rgba(122, 162, 247, 0.1);
+  border-radius: 0 6px 6px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.step-text.step-analysis.markdown-content :deep(blockquote p) {
+  margin: 0;
+}
+
+.step-text.step-analysis.markdown-content :deep(hr) {
+  margin: 12px 0;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .step-result {

@@ -69,7 +69,7 @@ const DEFAULT_OPTIONS: Required<ParseOptions> = {
 }
 
 export class DocumentParserService {
-  private pdfParse: typeof import('pdf-parse') | null = null
+  private PDFParser: typeof import('pdf2json').default | null = null
   private mammoth: typeof import('mammoth') | null = null
   private WordExtractor: typeof import('word-extractor').default | null = null
   private isInitialized = false
@@ -85,10 +85,11 @@ export class DocumentParserService {
     if (this.isInitialized) return
 
     try {
-      // 动态导入 pdf-parse
-      this.pdfParse = await import('pdf-parse')
+      // 动态导入 pdf2json（纯 Node.js 实现，不依赖浏览器 API）
+      const pdf2jsonModule = await import('pdf2json')
+      this.PDFParser = pdf2jsonModule.default
     } catch (e) {
-      console.warn('[DocumentParser] pdf-parse 未安装，PDF 解析将不可用:', e)
+      console.warn('[DocumentParser] pdf2json 未安装，PDF 解析将不可用:', e)
     }
 
     try {
@@ -246,23 +247,53 @@ export class DocumentParserService {
    * 解析 PDF 文件
    */
   private async parsePdf(filePath: string, result: ParsedDocument, _opts: Required<ParseOptions>): Promise<void> {
-    if (!this.pdfParse) {
-      throw new Error('PDF 解析库未安装，请运行: npm install pdf-parse')
+    if (!this.PDFParser) {
+      throw new Error('PDF 解析库未安装，请运行: npm install pdf2json')
     }
 
-    const dataBuffer = fs.readFileSync(filePath)
-    const pdfData = await this.pdfParse.default(dataBuffer)
-
-    result.content = pdfData.text
-    result.pageCount = pdfData.numpages
-    result.metadata = {
-      title: pdfData.info?.Title || '',
-      author: pdfData.info?.Author || '',
-      creator: pdfData.info?.Creator || '',
-      producer: pdfData.info?.Producer || '',
-      creationDate: pdfData.info?.CreationDate || '',
-      modDate: pdfData.info?.ModDate || ''
-    }
+    return new Promise((resolve, reject) => {
+      const pdfParser = new this.PDFParser!(null, true)  // null = no password, true = return raw text
+      
+      pdfParser.on('pdfParser_dataError', (errData: { parserError: Error }) => {
+        reject(new Error(`PDF 解析错误: ${errData.parserError.message}`))
+      })
+      
+      pdfParser.on('pdfParser_dataReady', (pdfData: { Pages: Array<{ Texts: Array<{ R: Array<{ T: string }> }> }> }) => {
+        try {
+          // 提取所有文本
+          const textContent: string[] = []
+          let pageCount = 0
+          
+          if (pdfData.Pages) {
+            pageCount = pdfData.Pages.length
+            for (const page of pdfData.Pages) {
+              const pageTexts: string[] = []
+              if (page.Texts) {
+                for (const text of page.Texts) {
+                  if (text.R) {
+                    for (const r of text.R) {
+                      if (r.T) {
+                        // 解码 URL 编码的文本
+                        pageTexts.push(decodeURIComponent(r.T))
+                      }
+                    }
+                  }
+                }
+              }
+              textContent.push(pageTexts.join(' '))
+            }
+          }
+          
+          result.content = textContent.join('\n\n')
+          result.pageCount = pageCount
+          resolve()
+        } catch (e) {
+          reject(new Error(`PDF 文本提取失败: ${e instanceof Error ? e.message : '未知错误'}`))
+        }
+      })
+      
+      pdfParser.loadPDF(filePath)
+    })
   }
 
   /**
@@ -395,7 +426,7 @@ export class DocumentParserService {
    */
   getSupportedTypes(): { extension: string; description: string; available: boolean }[] {
     return [
-      { extension: '.pdf', description: 'PDF 文档', available: !!this.pdfParse },
+      { extension: '.pdf', description: 'PDF 文档', available: !!this.PDFParser },
       { extension: '.docx', description: 'Word 文档 (2007+)', available: !!this.mammoth },
       { extension: '.doc', description: 'Word 文档 (97-2003)', available: !!this.WordExtractor },
       { extension: '.txt', description: '纯文本', available: true },
@@ -419,7 +450,7 @@ export class DocumentParserService {
     await this.init()
     
     return {
-      pdf: !!this.pdfParse,
+      pdf: !!this.PDFParser,
       docx: !!this.mammoth,
       doc: !!this.WordExtractor,
       text: true

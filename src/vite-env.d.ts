@@ -334,5 +334,84 @@ interface Window {
       probeSsh: (sshId: string, hostId: string) => Promise<HostProfile | null>
       generateContext: (hostId: string) => Promise<string>
     }
+    // 文档解析操作
+    document: {
+      selectFiles: () => Promise<{
+        canceled: boolean
+        files: Array<{
+          name: string
+          path: string
+          size: number
+        }>
+      }>
+      parse: (file: {
+        name: string
+        path: string
+        size: number
+        mimeType?: string
+      }, options?: {
+        maxFileSize?: number
+        maxTextLength?: number
+        extractMetadata?: boolean
+      }) => Promise<{
+        filename: string
+        fileType: string
+        content: string
+        fileSize: number
+        parseTime: number
+        pageCount?: number
+        metadata?: Record<string, string>
+        error?: string
+      }>
+      parseMultiple: (files: Array<{
+        name: string
+        path: string
+        size: number
+        mimeType?: string
+      }>, options?: {
+        maxFileSize?: number
+        maxTextLength?: number
+        extractMetadata?: boolean
+      }) => Promise<Array<{
+        filename: string
+        fileType: string
+        content: string
+        fileSize: number
+        parseTime: number
+        pageCount?: number
+        metadata?: Record<string, string>
+        error?: string
+      }>>
+      formatAsContext: (docs: Array<{
+        filename: string
+        fileType: string
+        content: string
+        fileSize: number
+        parseTime: number
+        pageCount?: number
+        metadata?: Record<string, string>
+        error?: string
+      }>) => Promise<string>
+      generateSummary: (doc: {
+        filename: string
+        fileType: string
+        content: string
+        fileSize: number
+        parseTime: number
+        pageCount?: number
+        error?: string
+      }) => Promise<string>
+      checkCapabilities: () => Promise<{
+        pdf: boolean
+        docx: boolean
+        doc: boolean
+        text: boolean
+      }>
+      getSupportedTypes: () => Promise<Array<{
+        extension: string
+        description: string
+        available: boolean
+      }>>
+    }
   }
 }

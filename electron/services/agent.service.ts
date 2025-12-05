@@ -40,6 +40,7 @@ export interface AgentContext {
   }
   hostId?: string  // 主机档案 ID
   historyMessages?: { role: string; content: string }[]  // 历史对话记录
+  documentContext?: string  // 用户上传的文档内容
 }
 
 // 工具执行结果
@@ -796,12 +797,18 @@ export class AgentService {
 
         // 检查是否有工具调用
         if (response.tool_calls && response.tool_calls.length > 0) {
-          // 将 assistant 消息（包含 tool_calls）添加到历史
-          run.messages.push({
+          // 将 assistant 消息（包含 tool_calls 和 reasoning_content）添加到历史
+          // DeepSeek think 模型要求后续消息必须包含 reasoning_content
+          const assistantMsg: AiMessage = {
             role: 'assistant',
-            content: response.content || streamContent || '',
+            content: response.content || '',  // 不使用 streamContent，因为它包含 HTML 标签
             tool_calls: response.tool_calls
-          })
+          }
+          // 如果有思考内容，添加到消息中（DeepSeek think 模型要求）
+          if (response.reasoning_content) {
+            assistantMsg.reasoning_content = response.reasoning_content
+          }
+          run.messages.push(assistantMsg)
 
           // 执行每个工具调用
           for (const toolCall of response.tool_calls) {
@@ -914,6 +921,12 @@ export class AgentService {
 "从输出可以看到 /dev/sda1 使用了 85%，接近满了。让我看看哪些目录占用最多空间。"
 [调用 execute_command: du -sh /* 2>/dev/null | sort -rh | head -10]`
 
+    // 文档上下文
+    let documentSection = ''
+    if (context.documentContext) {
+      documentSection = `\n\n${context.documentContext}`
+    }
+
     return `你是旗鱼终端的 AI Agent 助手。你可以帮助用户在终端中执行任务。
 
 ${hostContext}
@@ -936,7 +949,7 @@ ${hostContext}
 
 ## 输出格式示例
 ${diskSpaceExample}
-
+${documentSection}
 请根据用户的需求，使用合适的工具来完成任务。记住：每次调用工具前都要先说明分析和原因！`
   }
 

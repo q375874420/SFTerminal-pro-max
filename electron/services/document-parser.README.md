@@ -9,7 +9,7 @@
 ```json
 {
   "dependencies": {
-    "pdf-parse": "^1.1.1",
+    "pdf2json": "^3.1.4",
     "mammoth": "^1.8.0",
     "word-extractor": "^1.0.4"
   }
@@ -19,7 +19,7 @@
 然后运行：
 
 ```bash
-npm install pdf-parse mammoth word-extractor
+npm install pdf2json mammoth word-extractor
 ```
 
 ## 2. 在 main.ts 中添加 IPC 处理器
@@ -251,7 +251,7 @@ const systemPrompt = `你是一个专业的助手。以下是用户提供的参�
 
 | 格式 | 扩展名 | 依赖 | 说明 |
 |------|--------|------|------|
-| PDF | .pdf | pdf-parse | 完整支持 |
+| PDF | .pdf | pdf2json | 完整支持 |
 | Word (新) | .docx | mammoth | 完整支持 |
 | Word (旧) | .doc | word-extractor | 完整支持 |
 | 纯文本 | .txt | 内置 | 完整支持 |

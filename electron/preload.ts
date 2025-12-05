@@ -465,6 +465,99 @@ const electronAPI = {
       lastProbed: number
       lastUpdated: number
     } | null>
+  },
+
+  // 文档解析操作
+  document: {
+    // 选择文件
+    selectFiles: () => ipcRenderer.invoke('document:selectFiles') as Promise<{
+      canceled: boolean
+      files: Array<{
+        name: string
+        path: string
+        size: number
+      }>
+    }>,
+
+    // 解析单个文档
+    parse: (file: {
+      name: string
+      path: string
+      size: number
+      mimeType?: string
+    }, options?: {
+      maxFileSize?: number
+      maxTextLength?: number
+      extractMetadata?: boolean
+    }) => ipcRenderer.invoke('document:parse', file, options) as Promise<{
+      filename: string
+      fileType: string
+      content: string
+      fileSize: number
+      parseTime: number
+      pageCount?: number
+      metadata?: Record<string, string>
+      error?: string
+    }>,
+
+    // 批量解析文档
+    parseMultiple: (files: Array<{
+      name: string
+      path: string
+      size: number
+      mimeType?: string
+    }>, options?: {
+      maxFileSize?: number
+      maxTextLength?: number
+      extractMetadata?: boolean
+    }) => ipcRenderer.invoke('document:parseMultiple', files, options) as Promise<Array<{
+      filename: string
+      fileType: string
+      content: string
+      fileSize: number
+      parseTime: number
+      pageCount?: number
+      metadata?: Record<string, string>
+      error?: string
+    }>>,
+
+    // 格式化为 AI 上下文
+    formatAsContext: (docs: Array<{
+      filename: string
+      fileType: string
+      content: string
+      fileSize: number
+      parseTime: number
+      pageCount?: number
+      metadata?: Record<string, string>
+      error?: string
+    }>) => ipcRenderer.invoke('document:formatAsContext', docs) as Promise<string>,
+
+    // 生成文档摘要
+    generateSummary: (doc: {
+      filename: string
+      fileType: string
+      content: string
+      fileSize: number
+      parseTime: number
+      pageCount?: number
+      error?: string
+    }) => ipcRenderer.invoke('document:generateSummary', doc) as Promise<string>,
+
+    // 检查解析能力
+    checkCapabilities: () => ipcRenderer.invoke('document:checkCapabilities') as Promise<{
+      pdf: boolean
+      docx: boolean
+      doc: boolean
+      text: boolean
+    }>,
+
+    // 获取支持的文件类型
+    getSupportedTypes: () => ipcRenderer.invoke('document:getSupportedTypes') as Promise<Array<{
+      extension: string
+      description: string
+      available: boolean
+    }>>
   }
 }
 

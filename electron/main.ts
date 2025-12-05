@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell, Menu, dialog } from 'electron'
 import path, { join } from 'path'
+import * as fs from 'fs'
 import { PtyService } from './services/pty.service'
 import { SshService } from './services/ssh.service'
 import { AiService } from './services/ai.service'
@@ -8,6 +9,7 @@ import { XshellImportService } from './services/xshell-import.service'
 import { AgentService, AgentStep, PendingConfirmation, AgentContext } from './services/agent.service'
 import { HistoryService, ChatRecord, AgentRecord } from './services/history.service'
 import { HostProfileService, HostProfile } from './services/host-profile.service'
+import { getDocumentParserService, UploadedFile, ParseOptions, ParsedDocument } from './services/document-parser.service'
 
 // 禁用 GPU 加速可能导致的问题（可选）
 // app.disableHardwareAcceleration()
@@ -40,6 +42,7 @@ const xshellImportService = new XshellImportService()
 const hostProfileService = new HostProfileService()
 const agentService = new AgentService(aiService, ptyService, hostProfileService)
 const historyService = new HistoryService()
+const documentParserService = getDocumentParserService()
 
 function createWindow() {
   // 根据平台选择图标
@@ -647,5 +650,68 @@ ipcMain.handle('hostProfile:probeSsh', async (_event, sshId: string, hostId: str
     console.error('[SSH Probe] 探测失败:', error)
     return null
   }
+})
+
+// ==================== 文档解析相关 ====================
+
+// 选择文件对话框
+ipcMain.handle('document:selectFiles', async () => {
+  const result = await dialog.showOpenDialog({
+    title: '选择文档',
+    filters: [
+      { name: '支持的文档', extensions: ['pdf', 'docx', 'doc', 'txt', 'md', 'json', 'xml', 'html', 'csv'] },
+      { name: 'PDF 文档', extensions: ['pdf'] },
+      { name: 'Word 文档', extensions: ['docx', 'doc'] },
+      { name: '文本文件', extensions: ['txt', 'md'] },
+      { name: '所有文件', extensions: ['*'] }
+    ],
+    properties: ['openFile', 'multiSelections']
+  })
+  
+  if (result.canceled || result.filePaths.length === 0) {
+    return { canceled: true, files: [] }
+  }
+  
+  // 获取文件信息
+  const files: UploadedFile[] = result.filePaths.map(filePath => {
+    const stats = fs.statSync(filePath)
+    return {
+      name: path.basename(filePath),
+      path: filePath,
+      size: stats.size
+    }
+  })
+  
+  return { canceled: false, files }
+})
+
+// 解析单个文档
+ipcMain.handle('document:parse', async (_event, file: UploadedFile, options?: ParseOptions) => {
+  return documentParserService.parseDocument(file, options)
+})
+
+// 批量解析文档
+ipcMain.handle('document:parseMultiple', async (_event, files: UploadedFile[], options?: ParseOptions) => {
+  return documentParserService.parseDocuments(files, options)
+})
+
+// 格式化为 AI 上下文
+ipcMain.handle('document:formatAsContext', async (_event, docs: ParsedDocument[]) => {
+  return documentParserService.formatAsContext(docs)
+})
+
+// 生成文档摘要
+ipcMain.handle('document:generateSummary', async (_event, doc: ParsedDocument) => {
+  return documentParserService.generateSummary(doc)
+})
+
+// 检查解析能力
+ipcMain.handle('document:checkCapabilities', async () => {
+  return documentParserService.checkCapabilities()
+})
+
+// 获取支持的文件类型
+ipcMain.handle('document:getSupportedTypes', async () => {
+  return documentParserService.getSupportedTypes()
 })
 
