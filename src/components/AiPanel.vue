@@ -166,6 +166,7 @@ const handleSend = () => {
 // 监听右键菜单发送到 AI 的文本
 watch(() => terminalStore.pendingAiText, (text) => {
   if (text) {
+    agentMode.value = false  // 切换到对话界面
     analyzeTerminalContent(text)
     terminalStore.clearPendingAiText()
   }
