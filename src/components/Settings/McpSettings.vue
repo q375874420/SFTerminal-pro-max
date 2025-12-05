@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, toRaw } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
 
 // 类型定义
@@ -212,17 +212,18 @@ const testConnection = async () => {
   parseArgs()
   parseEnv()
 
+  // 使用 toRaw 转换响应式对象，避免 IPC 克隆错误
   const testConfig: McpServerConfig = {
     id: editingServer.value?.id || `test_${Date.now()}`,
     name: formData.value.name,
     enabled: true,
     transport: formData.value.transport || 'stdio',
     command: formData.value.command,
-    args: formData.value.args,
-    env: formData.value.env,
+    args: toRaw(formData.value.args) || [],
+    env: toRaw(formData.value.env) || {},
     cwd: formData.value.cwd,
     url: formData.value.url,
-    headers: formData.value.headers
+    headers: toRaw(formData.value.headers) || {}
   }
 
   testing.value = true
@@ -255,17 +256,22 @@ const saveServer = async () => {
   parseArgs()
   parseEnv()
 
+  // 使用 toRaw 转换响应式对象，避免 IPC 克隆错误
+  const rawArgs = toRaw(formData.value.args) || []
+  const rawEnv = toRaw(formData.value.env) || {}
+  const rawHeaders = toRaw(formData.value.headers) || {}
+
   const server: McpServerConfig = {
     id: editingServer.value?.id || uuidv4(),
     name: formData.value.name,
     enabled: formData.value.enabled ?? true,
     transport: formData.value.transport || 'stdio',
     command: formData.value.command,
-    args: formData.value.args,
-    env: Object.keys(formData.value.env || {}).length > 0 ? formData.value.env : undefined,
+    args: rawArgs,
+    env: Object.keys(rawEnv).length > 0 ? rawEnv : undefined,
     cwd: formData.value.cwd || undefined,
     url: formData.value.url,
-    headers: Object.keys(formData.value.headers || {}).length > 0 ? formData.value.headers : undefined
+    headers: Object.keys(rawHeaders).length > 0 ? rawHeaders : undefined
   }
 
   if (editingServer.value) {
@@ -289,7 +295,8 @@ const deleteServer = async (server: McpServerConfig) => {
 
 // 切换启用状态
 const toggleEnabled = async (server: McpServerConfig) => {
-  const updated = { ...server, enabled: !server.enabled }
+  // 深拷贝避免 IPC 克隆错误
+  const updated = JSON.parse(JSON.stringify({ ...server, enabled: !server.enabled }))
   await window.electronAPI.mcp.updateServer(updated)
   
   // 如果禁用，断开连接
@@ -304,7 +311,9 @@ const toggleEnabled = async (server: McpServerConfig) => {
 const connectServer = async (server: McpServerConfig) => {
   connecting.value = server.id
   try {
-    const result = await window.electronAPI.mcp.connect(server)
+    // 深拷贝避免 IPC 克隆错误
+    const plainServer = JSON.parse(JSON.stringify(server))
+    const result = await window.electronAPI.mcp.connect(plainServer)
     if (!result.success) {
       alert(`连接失败: ${result.error}`)
     }
