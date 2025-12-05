@@ -254,11 +254,19 @@ export class DocumentParserService {
     return new Promise((resolve, reject) => {
       const pdfParser = new this.PDFParser!(null, true)  // null = no password, true = return raw text
       
-      pdfParser.on('pdfParser_dataError', (errData: { parserError: Error }) => {
-        reject(new Error(`PDF 解析错误: ${errData.parserError.message}`))
+      // 设置超时（30秒）
+      const timeout = setTimeout(() => {
+        reject(new Error('PDF 解析超时，文件可能过大或格式不支持'))
+      }, 30000)
+      
+      pdfParser.on('pdfParser_dataError', (errData: Error | { parserError: Error }) => {
+        clearTimeout(timeout)
+        const message = 'parserError' in errData ? errData.parserError.message : errData.message
+        reject(new Error(`PDF 解析错误: ${message}`))
       })
       
       pdfParser.on('pdfParser_dataReady', (pdfData: { Pages: Array<{ Texts: Array<{ R: Array<{ T: string }> }> }> }) => {
+        clearTimeout(timeout)
         try {
           // 提取所有文本
           const textContent: string[] = []
@@ -274,7 +282,12 @@ export class DocumentParserService {
                     for (const r of text.R) {
                       if (r.T) {
                         // 解码 URL 编码的文本
-                        pageTexts.push(decodeURIComponent(r.T))
+                        try {
+                          pageTexts.push(decodeURIComponent(r.T))
+                        } catch {
+                          // 如果解码失败，使用原始文本
+                          pageTexts.push(r.T)
+                        }
                       }
                     }
                   }
@@ -284,8 +297,19 @@ export class DocumentParserService {
             }
           }
           
-          result.content = textContent.join('\n\n')
+          result.content = textContent.join('\n\n').trim()
           result.pageCount = pageCount
+          
+          // 检查是否成功提取到内容
+          if (!result.content || result.content.length === 0) {
+            // PDF 可能是扫描件或图片型 PDF
+            if (pageCount > 0) {
+              result.error = `PDF 共 ${pageCount} 页，但未能提取到文本内容。该文件可能是扫描件或图片型 PDF，暂不支持 OCR 识别。`
+            } else {
+              result.error = 'PDF 文件为空或格式不支持'
+            }
+          }
+          
           resolve()
         } catch (e) {
           reject(new Error(`PDF 文本提取失败: ${e instanceof Error ? e.message : '未知错误'}`))
@@ -387,13 +411,20 @@ export class DocumentParserService {
 
   /**
    * 将解析结果格式化为 AI 上下文
+   * 文档按上传顺序排列，最后上传的文档排在最后
    */
   formatAsContext(docs: ParsedDocument[]): string {
     if (docs.length === 0) return ''
 
     const parts: string[] = []
     
-    parts.push('=== 用户上传的参考文档（内容已包含在下方，请直接阅读，无需使用工具读取）===\n')
+    // 多文档时添加重要提示
+    if (docs.length > 1) {
+      parts.push('=== 用户上传的参考文档 ===\n')
+      parts.push('【重要提示】用户上传了多个文档。如果文档内容存在冲突或更新关系，请**优先参考最后上传的文档**（即文档编号最大的），因为它代表用户最新提供的信息。\n\n')
+    } else {
+      parts.push('=== 用户上传的参考文档（内容已包含在下方，请直接阅读，无需使用工具读取）===\n')
+    }
     
     for (let i = 0; i < docs.length; i++) {
       const doc = docs[i]

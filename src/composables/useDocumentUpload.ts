@@ -52,8 +52,8 @@ export function useDocumentUpload(currentTabId: Ref<string | null> | ComputedRef
       // 解析文档
       const parsedDocs = await documentAPI.parseMultiple(files)
       
-      // 替换模式：新上传的文档替换旧文档
-      terminalStore.setUploadedDocs(tabId, parsedDocs)
+      // 追加模式：新上传的文档追加到列表末尾
+      terminalStore.addUploadedDocs(tabId, parsedDocs)
       
       // 显示解析结果摘要
       const successCount = parsedDocs.filter((d: ParsedDocument) => !d.error).length
@@ -104,8 +104,8 @@ export function useDocumentUpload(currentTabId: Ref<string | null> | ComputedRef
       const documentAPI = (window.electronAPI as { document: typeof window.electronAPI.document }).document
       const parsedDocs = await documentAPI.parseMultiple(fileInfos)
       
-      // 替换模式：新上传的文档替换旧文档
-      terminalStore.setUploadedDocs(tabId, parsedDocs)
+      // 追加模式：新上传的文档追加到列表末尾
+      terminalStore.addUploadedDocs(tabId, parsedDocs)
       
       // 显示解析结果摘要
       const successCount = parsedDocs.filter((d: ParsedDocument) => !d.error).length
