@@ -25,17 +25,6 @@ https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-e
 **方法二：使用下载脚本**
 
 ```bash
-# 直接下载（无代理）
-node scripts/download-speech-model.js
-
-# 使用代理下载（v2rayn 默认 HTTP 代理端口 10809）
-node scripts/download-speech-model.js --proxy
-
-# 自定义代理地址
-node scripts/download-speech-model.js --proxy http://127.0.0.1:7890
-
-# 也可以通过环境变量设置代理
-export https_proxy=http://127.0.0.1:10809
 node scripts/download-speech-model.js
 ```
 
