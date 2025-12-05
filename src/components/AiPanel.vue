@@ -162,6 +162,17 @@ const clearMessages = () => {
 
 // ==================== 确认框辅助函数 ====================
 
+// 工具名称中文映射
+const getToolDisplayName = (toolName: string) => {
+  const names: Record<string, string> = {
+    execute_command: '执行命令',
+    read_file: '读取文件',
+    write_file: '写入文件',
+    get_terminal_context: '获取终端上下文'
+  }
+  return names[toolName] || toolName
+}
+
 // 格式化确认参数显示（简化显示）
 const formatConfirmArgs = (confirm: typeof pendingConfirm.value) => {
   if (!confirm) return ''
@@ -295,19 +306,20 @@ onMounted(() => {
           v-if="aiProfiles.length > 0"
           class="model-select"
           :value="activeAiProfile?.id || ''"
+          title="切换 AI 模型"
           @change="changeAiProfile(($event.target as HTMLSelectElement).value)"
         >
           <option v-for="profile in aiProfiles" :key="profile.id" :value="profile.id">
             {{ profile.name }} ({{ profile.model }})
           </option>
         </select>
-        <button class="btn-icon" @click="clearMessages" data-tooltip="清空对话">
+        <button class="btn-icon" @click="clearMessages" title="清空对话">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
           </svg>
         </button>
-        <button class="btn-icon" @click="emit('close')">
+        <button class="btn-icon" @click="emit('close')" title="关闭面板">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="6" x2="6" y2="18"/>
             <line x1="6" y1="6" x2="18" y2="18"/>
@@ -335,6 +347,7 @@ onMounted(() => {
         <button 
           class="mode-btn" 
           :class="{ active: agentMode }"
+          title="Agent 模式：AI 自主执行命令完成任务"
           @click="agentMode = true"
         >
           🤖 Agent
@@ -342,6 +355,7 @@ onMounted(() => {
         <button 
           class="mode-btn" 
           :class="{ active: !agentMode }"
+          title="对话模式：与 AI 进行问答交流"
           @click="agentMode = false"
         >
           💬 对话
@@ -391,7 +405,7 @@ onMounted(() => {
         <button class="error-alert-btn" @click="handleDiagnoseError" :disabled="isLoading">
           AI 诊断
         </button>
-        <button class="error-alert-close" @click="terminalStore.clearError(terminalStore.activeTab?.id || '')">
+        <button class="error-alert-close" @click="terminalStore.clearError(terminalStore.activeTab?.id || '')" title="关闭错误提示">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="6" x2="6" y2="18"/>
             <line x1="6" y1="6" x2="18" y2="18"/>
@@ -629,7 +643,7 @@ onMounted(() => {
                 </span>
               </div>
               <div class="confirm-detail">
-                <div class="confirm-tool-name">{{ pendingConfirm.toolName }}</div>
+                <div class="confirm-tool-name">{{ getToolDisplayName(pendingConfirm.toolName) }}</div>
                 <pre class="confirm-args-inline">{{ formatConfirmArgs(pendingConfirm) }}</pre>
               </div>
               <div class="confirm-actions-inline">
@@ -645,7 +659,7 @@ onMounted(() => {
         </div>
 
         <!-- 新消息指示器 -->
-        <div v-if="hasNewMessage" class="new-message-indicator" @click="scrollToBottom">
+        <div v-if="hasNewMessage" class="new-message-indicator" @click="scrollToBottom" title="点击滚动到底部">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="6 9 12 15 18 9"/>
           </svg>
@@ -752,6 +766,7 @@ onMounted(() => {
             class="send-btn"
             :class="{ 'send-btn-agent': agentMode }"
             :disabled="!inputText.trim()"
+            :title="agentMode ? '执行任务 (Enter)' : '发送消息 (Enter)'"
             @click="handleSend"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

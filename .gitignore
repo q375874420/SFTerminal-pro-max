@@ -7,6 +7,8 @@ dist-electron/
 release/
 electron-cache/
 
+asset/
+
 # Editor
 .vscode/*
 !.vscode/extensions.json
