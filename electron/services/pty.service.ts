@@ -590,11 +590,13 @@ export class PtyService {
         return await this.getTerminalStatusMacOS(shellPid)
       } else if (process.platform === 'linux') {
         return await this.getTerminalStatusLinux(shellPid)
+      } else if (process.platform === 'win32') {
+        return await this.getTerminalStatusWindows(shellPid)
       } else {
         return {
           isIdle: true,
           shellPid,
-          stateDescription: 'Windows 平台暂不支持详细状态检测'
+          stateDescription: '未知平台，假设空闲'
         }
       }
     } catch (error) {
@@ -748,6 +750,105 @@ export class PtyService {
       }
     } catch {
       return this.getTerminalStatusSimple(shellPid)
+    }
+  }
+
+  /**
+   * Windows 终端状态检测
+   */
+  private async getTerminalStatusWindows(shellPid: number): Promise<TerminalStatus> {
+    try {
+      // 使用 PowerShell 获取子进程
+      const { stdout } = await execAsync(
+        `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter 'ParentProcessId=${shellPid}' | Select-Object ProcessId,Name | ConvertTo-Json"`,
+        { timeout: 3000 }
+      )
+
+      const trimmed = stdout.trim()
+      if (!trimmed || trimmed === '' || trimmed === 'null') {
+        // 没有子进程，终端空闲
+        return {
+          isIdle: true,
+          foregroundProcess: 'shell',
+          foregroundPid: shellPid,
+          shellPid,
+          stateDescription: '空闲，等待用户输入'
+        }
+      }
+
+      try {
+        // 解析 JSON 结果
+        let processes = JSON.parse(trimmed)
+        // PowerShell 单个结果时返回对象，多个结果时返回数组
+        if (!Array.isArray(processes)) {
+          processes = [processes]
+        }
+
+        if (processes.length > 0) {
+          const firstProcess = processes[0]
+          return {
+            isIdle: false,
+            foregroundProcess: firstProcess.Name || 'unknown',
+            foregroundPid: firstProcess.ProcessId,
+            shellPid,
+            stateDescription: `正在执行: ${firstProcess.Name || 'unknown'} (PID: ${firstProcess.ProcessId})`
+          }
+        }
+      } catch {
+        // JSON 解析失败，但有输出，说明可能有子进程
+        return {
+          isIdle: false,
+          shellPid,
+          stateDescription: '有命令正在执行'
+        }
+      }
+
+      return {
+        isIdle: true,
+        foregroundProcess: 'shell',
+        foregroundPid: shellPid,
+        shellPid,
+        stateDescription: '空闲，等待用户输入'
+      }
+    } catch (error) {
+      // PowerShell 不可用时，尝试使用 wmic（旧版 Windows）
+      try {
+        const { stdout } = await execAsync(
+          `wmic process where "ParentProcessId=${shellPid}" get ProcessId,Name /format:csv`,
+          { timeout: 3000 }
+        )
+        
+        const lines = stdout.trim().split('\n').filter((l: string) => l.trim() && !l.includes('Node,'))
+        
+        if (lines.length > 1) { // 第一行是标题
+          const parts = lines[1].split(',')
+          const name = parts[1] || 'unknown'
+          const pid = parseInt(parts[2]) || 0
+          
+          return {
+            isIdle: false,
+            foregroundProcess: name,
+            foregroundPid: pid,
+            shellPid,
+            stateDescription: `正在执行: ${name} (PID: ${pid})`
+          }
+        }
+        
+        return {
+          isIdle: true,
+          foregroundProcess: 'shell',
+          foregroundPid: shellPid,
+          shellPid,
+          stateDescription: '空闲，等待用户输入'
+        }
+      } catch {
+        // 两种方法都失败，返回默认空闲状态
+        return {
+          isIdle: true,
+          shellPid,
+          stateDescription: 'Windows 状态检测失败，假设空闲'
+        }
+      }
     }
   }
 
