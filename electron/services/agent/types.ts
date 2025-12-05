@@ -97,7 +97,7 @@ export interface AgentCallbacks {
 // 默认配置
 export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   enabled: true,
-  maxSteps: 20,
+  maxSteps: 50,
   commandTimeout: 30000,
   autoExecuteSafe: true,
   autoExecuteModerate: true,
