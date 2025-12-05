@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from 'child_process'
 import * as os from 'os'
+import stripAnsi from 'strip-ansi'
 
 export interface CommandResult {
   output: string
@@ -130,9 +131,7 @@ export class CommandExecutorService {
    * 清理输出
    */
   private cleanOutput(output: string): string {
-    return output
-      // 移除 ANSI 转义序列
-      .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+    return stripAnsi(output)
       // 移除回车符
       .replace(/\r/g, '')
       // 移除开头和结尾的空白

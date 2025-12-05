@@ -3,6 +3,7 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
+import stripAnsi from 'strip-ansi'
 import type { ToolCall } from '../ai.service'
 import type { PtyService } from '../pty.service'
 import type { 
@@ -275,9 +276,7 @@ async function executeTimedCommand(
       }
 
       // 清理输出（移除 ANSI 转义序列）
-      const cleanOutput = output
-        .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')  // CSI 序列
-        .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')  // OSC 序列
+      const cleanOutput = stripAnsi(output)
         .replace(/\r/g, '')
         .trim()
 

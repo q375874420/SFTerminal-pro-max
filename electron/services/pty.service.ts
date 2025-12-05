@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import * as os from 'os'
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import stripAnsi from 'strip-ansi'
 
 const execAsync = promisify(exec)
 
@@ -411,21 +412,9 @@ export class PtyService {
       let lastOutputTime = Date.now()
       let checkTimer: NodeJS.Timeout | null = null
 
-      // 去除 ANSI 转义序列和控制字符
-      const stripAnsi = (str: string): string => {
-        return str
-          // CSI 序列 (包括 [?2004h 等)
-          .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
-          // OSC 序列 (以 BEL 或 ST 结尾)
-          .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
-          // 单独的 OSC 序列（可能没有正确结尾）
-          .replace(/\x1b\][^\n]*(?=\n|$)/g, '')
-          // DCS/PM/APC 序列
-          .replace(/\x1b[PX^_][^\x1b]*\x1b\\/g, '')
-          // 其他转义序列
-          .replace(/\x1b[=>NOcZ78]/g, '')
-          // zsh 的 %
-          .replace(/\x1b\[[\d;]*m%\x1b\[[\d;]*m/g, '')
+      // 去除 ANSI 转义序列和控制字符（用于提示符检测，比标准 stripAnsi 更彻底）
+      const stripAnsiAndControlChars = (str: string): string => {
+        return stripAnsi(str)
           // 控制字符（保留换行和回车）
           .replace(/[\x00-\x09\x0b\x0c\x0e-\x1f]/g, '')
       }
@@ -443,7 +432,7 @@ export class PtyService {
       
       const isPrompt = (text: string): boolean => {
         // 去除 ANSI 后检测
-        const cleanText = stripAnsi(text)
+        const cleanText = stripAnsiAndControlChars(text)
         const lines = cleanText.split(/[\r\n]/).filter(l => l.trim())
         const lastLine = lines[lines.length - 1] || ''
         const last80 = cleanText.slice(-80)
@@ -499,7 +488,7 @@ export class PtyService {
         }
         
         resolve({
-          output: lines.join('\n').trim(),
+          output: stripAnsi(lines.join('\n').trim()),
           duration: Date.now() - startTime
         })
       }
