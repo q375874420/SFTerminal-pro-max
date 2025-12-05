@@ -1,185 +1,135 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, inject, watch, onMounted, onUnmounted } from 'vue'
-import { marked } from 'marked'
+/**
+ * AI 面板组件
+ * 重构版本：使用 composables 模块化管理逻辑
+ */
+import { ref, computed, watch, inject, onMounted } from 'vue'
 import { useConfigStore } from '../stores/config'
 import { useTerminalStore } from '../stores/terminal'
 
+// 导入 composables
+import {
+  useMarkdown,
+  useDocumentUpload,
+  useContextStats,
+  useHostProfile,
+  useAiChat,
+  useAgentMode
+} from '../composables'
+
+// Emits
 const emit = defineEmits<{
   close: []
 }>()
 
+// Stores
 const configStore = useConfigStore()
 const terminalStore = useTerminalStore()
 const showSettings = inject<() => void>('showSettings')
 
-import type { AiMessage, AgentStep } from '../stores/terminal'
-
-const inputText = ref('')
+// Refs
 const messagesRef = ref<HTMLDivElement | null>(null)
 
-// 文档上传状态
-interface ParsedDocument {
-  filename: string
-  fileType: string
-  content: string
-  fileSize: number
-  parseTime: number
-  pageCount?: number
-  metadata?: Record<string, string>
-  error?: string
-}
+// ==================== 初始化 Composables ====================
 
-const uploadedDocs = ref<ParsedDocument[]>([])
-const isUploadingDocs = ref(false)
+// 文档上传
+const {
+  uploadedDocs,
+  isUploadingDocs,
+  selectAndUploadDocs,
+  removeUploadedDoc,
+  clearUploadedDocs,
+  formatFileSize,
+  getDocumentContext
+} = useDocumentUpload()
 
-// Agent 模式状态
-const agentMode = ref(true)
-const strictMode = ref(true)       // 严格模式（默认开启）
-const commandTimeout = ref(10)     // 命令超时时间（秒），默认 10 秒
-const collapsedTaskIds = ref<Set<string>>(new Set())  // 已折叠的任务 ID
+// Markdown 渲染
+const {
+  renderMarkdown,
+  handleCodeBlockClick,
+  copyMessage
+} = useMarkdown()
 
-// 切换任务步骤折叠状态
-const toggleStepsCollapse = (taskId: string) => {
-  if (collapsedTaskIds.value.has(taskId)) {
-    collapsedTaskIds.value.delete(taskId)
-  } else {
-    collapsedTaskIds.value.add(taskId)
-  }
-}
+// AI 对话
+const {
+  inputText,
+  messages,
+  currentTabId,
+  isLoading,
+  currentSystemInfo,
+  terminalSelectedText,
+  lastError,
+  scrollToBottom,
+  getTerminalInfo,
+  sendMessage,
+  explainCommand,
+  generateCommand,
+  stopGeneration,
+  diagnoseError,
+  analyzeSelection,
+  analyzeTerminalContent,
+  quickActions
+} = useAiChat(getDocumentContext, messagesRef)
 
-// 检查任务是否折叠
-const isStepsCollapsed = (taskId: string) => {
-  return collapsedTaskIds.value.has(taskId)
-}
-
-// 清理事件监听的函数
-let cleanupStepListener: (() => void) | null = null
-let cleanupConfirmListener: (() => void) | null = null
-let cleanupCompleteListener: (() => void) | null = null
-let cleanupErrorListener: (() => void) | null = null
-
-// 当前终端的 AI 消息（每个终端独立）
-const messages = computed(() => {
-  const activeTab = terminalStore.activeTab
-  return activeTab?.aiMessages || []
-})
-
-// 当前终端 ID
-const currentTabId = computed(() => terminalStore.activeTabId)
-
-// 获取当前终端信息（用于历史记录）
-const getTerminalInfo = () => {
-  const activeTab = terminalStore.activeTab
-  if (!activeTab) return null
-  return {
-    terminalId: activeTab.id,
-    terminalType: activeTab.type as 'local' | 'ssh',
-    sshHost: activeTab.sshConfig?.host
-  }
-}
-
-// 当前终端的 AI 加载状态（每个终端独立）
-const isLoading = computed(() => {
-  const activeTab = terminalStore.activeTab
-  return activeTab?.aiLoading || false
-})
-
-// Agent 状态
-const agentState = computed(() => {
+// Agent 模式（需要 inputText 和 scrollToBottom）
+// 先创建一个临时的 agentState computed 用于 useHostProfile
+const tempAgentState = computed(() => {
   const activeTab = terminalStore.activeTab
   return activeTab?.agentState
 })
 
-const isAgentRunning = computed(() => {
-  return agentState.value?.isRunning || false
-})
+// 主机档案
+const {
+  currentHostProfile,
+  isLoadingProfile,
+  isProbing,
+  getHostId,
+  loadHostProfile,
+  refreshHostProfile,
+  summarizeAgentFindings,
+  autoProbeHostProfile
+} = useHostProfile(tempAgentState)
 
-// 监听严格模式变化，实时更新运行中的 Agent
-watch(strictMode, async (newValue) => {
-  const agentId = agentState.value?.agentId
-  if (agentId && isAgentRunning.value) {
-    await window.electronAPI.agent.updateConfig(agentId, { strictMode: newValue })
-  }
-})
+// Agent 模式
+const {
+  agentMode,
+  strictMode,
+  commandTimeout,
+  agentState,
+  isAgentRunning,
+  pendingConfirm,
+  agentUserTask,
+  agentTaskGroups,
+  toggleStepsCollapse,
+  isStepsCollapsed,
+  runAgent,
+  abortAgent,
+  confirmToolCall,
+  getStepIcon,
+  getRiskClass
+} = useAgentMode(
+  inputText,
+  scrollToBottom,
+  getDocumentContext,
+  getHostId,
+  autoProbeHostProfile,
+  summarizeAgentFindings
+)
 
-// 监听超时设置变化
-watch(commandTimeout, async (newValue) => {
-  const agentId = agentState.value?.agentId
-  if (agentId && isAgentRunning.value) {
-    await window.electronAPI.agent.updateConfig(agentId, { commandTimeout: newValue * 1000 })
-  }
-})
+// 上下文统计
+const {
+  contextStats
+} = useContextStats(
+  agentMode,
+  messages,
+  agentState,
+  agentUserTask,
+  computed(() => configStore.activeAiProfile)
+)
 
-// 按任务分组的步骤（每个任务包含：用户任务 + 步骤块 + 最终结果）
-interface AgentTaskGroup {
-  id: string
-  userTask: string
-  steps: AgentStep[]
-  finalResult?: string
-  isCurrentTask: boolean
-}
-
-const agentTaskGroups = computed((): AgentTaskGroup[] => {
-  const allSteps = agentState.value?.steps || []
-  const groups: AgentTaskGroup[] = []
-  let currentGroup: AgentTaskGroup | null = null
-  
-  for (const step of allSteps) {
-    if (step.type === 'user_task') {
-      // 开始新任务
-      currentGroup = {
-        id: step.id,
-        userTask: step.content,
-        steps: [],
-        isCurrentTask: false
-      }
-      groups.push(currentGroup)
-    } else if (step.type === 'final_result') {
-      // 结束当前任务
-      if (currentGroup) {
-        currentGroup.finalResult = step.content
-        currentGroup = null
-      }
-    } else if (step.type !== 'confirm') {
-      // 添加到当前任务的步骤
-      if (currentGroup) {
-        currentGroup.steps.push(step)
-      }
-    }
-  }
-  
-  // 标记最后一个未完成的任务为当前任务
-  if (groups.length > 0) {
-    const lastGroup = groups[groups.length - 1]
-    if (!lastGroup.finalResult) {
-      lastGroup.isCurrentTask = true
-    }
-  }
-  
-  // 去除步骤中与 finalResult 重复的最后一个 message
-  for (const group of groups) {
-    if (group.finalResult && group.steps.length > 0) {
-      const lastStep = group.steps[group.steps.length - 1]
-      if (lastStep.type === 'message' && lastStep.content === group.finalResult) {
-        group.steps = group.steps.slice(0, -1)
-      }
-    }
-  }
-  
-  return groups
-})
-
-const pendingConfirm = computed(() => {
-  return agentState.value?.pendingConfirm
-})
-
-const agentUserTask = computed(() => {
-  return agentState.value?.userTask
-})
+// ==================== 配置相关 ====================
 
 const hasAiConfig = computed(() => configStore.hasAiConfig)
-
-// AI 配置列表和当前选中的配置
 const aiProfiles = computed(() => configStore.aiProfiles)
 const activeAiProfile = computed(() => configStore.activeAiProfile)
 
@@ -188,379 +138,7 @@ const changeAiProfile = async (profileId: string) => {
   await configStore.setActiveAiProfile(profileId)
 }
 
-// 获取当前终端的系统信息
-const currentSystemInfo = computed(() => {
-  const activeTab = terminalStore.activeTab
-  if (activeTab?.systemInfo) {
-    return activeTab.systemInfo
-  }
-  return null
-})
-
-// 获取当前终端选中的文本
-const terminalSelectedText = computed(() => {
-  return terminalStore.activeTab?.selectedText || ''
-})
-
-// 获取最近的错误
-const lastError = computed(() => {
-  return terminalStore.activeTab?.lastError
-})
-
-// 估算文本的 token 数量
-// 中文：约 1.5 字符/token，英文：约 4 字符/token
-function estimateTokens(text: string): number {
-  if (!text) return 0
-  
-  // 统计中文字符数量
-  const chineseChars = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length
-  // 非中文字符数量
-  const otherChars = text.length - chineseChars
-  
-  // 中文约 1.5 字符/token，英文约 4 字符/token
-  return Math.ceil(chineseChars / 1.5 + otherChars / 4)
-}
-
-// 计算上下文使用情况
-// 这个估算反映的是发送给 AI 的实际上下文大小
-const contextStats = computed(() => {
-  let totalTokens = 0
-  let messageCount = 0
-  
-  if (agentMode.value) {
-    // Agent 模式：计算发送给 AI 的实际上下文
-    // 1. System prompt (~200 tokens) + 工具定义 (~400 tokens)
-    totalTokens += 600
-    
-    // 2. 历史任务（作为 user/assistant 消息对发送）
-    const history = agentState.value?.history || []
-    for (const item of history) {
-      totalTokens += estimateTokens(item.userTask) + 3  // user 消息 + 格式开销
-      totalTokens += estimateTokens(item.finalResult) + 3  // assistant 消息 + 格式开销
-      messageCount += 2
-    }
-    
-    // 3. 当前用户任务
-    if (agentUserTask.value) {
-      totalTokens += estimateTokens(agentUserTask.value) + 3
-      messageCount++
-    }
-    
-    // 4. Agent 执行过程中的消息累积
-    // 每个步骤 = AI 回复 + 工具调用 + 工具结果
-    const allSteps = agentState.value?.steps || []
-    for (const step of allSteps) {
-      if (step.type === 'message' || step.type === 'thinking') {
-        // AI 的文字回复
-        totalTokens += estimateTokens(step.content) + 3
-      } else if (step.type === 'tool_call' || step.type === 'tool_result') {
-        // 工具调用参数 + 工具结果
-        totalTokens += estimateTokens(step.content) + 10  // 工具调用有更多格式开销
-        if (step.toolResult) {
-          totalTokens += estimateTokens(step.toolResult) + 5
-        }
-      }
-    }
-  } else {
-    // 普通对话模式
-    // System prompt (~100 tokens)
-    totalTokens += 100
-    
-    const msgs = messages.value.filter(msg => !msg.content.includes('中...'))
-    messageCount = msgs.length
-    
-    for (const msg of msgs) {
-      totalTokens += estimateTokens(msg.content)
-      // 每条消息格式开销（role 标记等）约 3 tokens
-      totalTokens += 3
-    }
-  }
-  
-  // 从当前 AI 配置获取上下文长度，默认 8000
-  const maxTokens = activeAiProfile.value?.contextLength || 8000
-  
-  return {
-    messageCount,
-    tokenEstimate: totalTokens,
-    maxTokens,
-    percentage: Math.min(100, Math.round((totalTokens / maxTokens) * 100))
-  }
-})
-
-
-
-// 生成系统信息的提示词
-const getSystemPrompt = () => {
-  const info = currentSystemInfo.value
-  let systemContext = ''
-  
-  if (info) {
-    const osNames: Record<string, string> = {
-      windows: 'Windows',
-      linux: 'Linux',
-      macos: 'macOS',
-      unknown: '未知操作系统'
-    }
-    const shellNames: Record<string, string> = {
-      powershell: 'PowerShell',
-      cmd: 'CMD (命令提示符)',
-      bash: 'Bash',
-      zsh: 'Zsh',
-      sh: 'Shell',
-      unknown: '未知 Shell'
-    }
-    
-    systemContext = `当前用户使用的是 ${osNames[info.os]} 系统，Shell 类型是 ${shellNames[info.shell]}。`
-    if (info.description) {
-      systemContext += ` (${info.description})`
-    }
-    systemContext += ' 请根据这个环境给出准确的命令和建议。'
-  } else {
-    systemContext = `当前操作系统平台: ${navigator.platform}。`
-  }
-  
-  return `你是旗鱼终端的 AI 助手，专门帮助运维人员解决命令行相关问题。${systemContext} 请用中文回答，回答要简洁实用。`
-}
-
-// 滚动到底部
-const scrollToBottom = async () => {
-  await nextTick()
-  if (messagesRef.value) {
-    messagesRef.value.scrollTop = messagesRef.value.scrollHeight
-  }
-}
-
-// 发送消息
-const sendMessage = async () => {
-  if (!inputText.value.trim() || isLoading.value || !currentTabId.value) return
-
-  const tabId = currentTabId.value
-  const userMessage: AiMessage = {
-    id: Date.now().toString(),
-    role: 'user',
-    content: inputText.value,
-    timestamp: new Date()
-  }
-
-  terminalStore.addAiMessage(tabId, userMessage)
-  inputText.value = ''
-  terminalStore.setAiLoading(tabId, true)
-  await scrollToBottom()
-
-  // 创建 AI 响应占位
-  const assistantMessage: AiMessage = {
-    id: (Date.now() + 1).toString(),
-    role: 'assistant',
-    content: '思考中...',
-    timestamp: new Date()
-  }
-  const messageIndex = terminalStore.addAiMessage(tabId, assistantMessage)
-  await scrollToBottom()
-
-  try {
-    let firstChunk = true
-    
-    // 构建包含历史对话的消息列表
-    const currentMessages = terminalStore.getAiMessages(tabId)
-    // 过滤掉占位消息（内容包含"中..."的），并转换格式
-    const historyMessages = currentMessages
-      .filter(msg => !msg.content.includes('中...'))
-      .map(msg => ({
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content
-      }))
-    
-    // 获取文档上下文
-    const documentContext = await getDocumentContext()
-    
-    // 构建系统提示词（包含文档上下文）
-    let systemPrompt = getSystemPrompt()
-    if (documentContext) {
-      systemPrompt += `\n\n${documentContext}`
-    }
-    
-    // 使用流式响应，传入 tabId 作为 requestId 支持多终端同时请求
-    window.electronAPI.ai.chatStream(
-      [
-        {
-          role: 'system',
-          content: systemPrompt
-        },
-        ...historyMessages
-      ],
-      chunk => {
-        const currentContent = terminalStore.getAiMessages(tabId)[messageIndex]?.content || ''
-        if (firstChunk) {
-          terminalStore.updateAiMessage(tabId, messageIndex, chunk)
-          firstChunk = false
-        } else {
-          terminalStore.updateAiMessage(tabId, messageIndex, currentContent + chunk)
-        }
-        scrollToBottom()
-      },
-      () => {
-        terminalStore.setAiLoading(tabId, false)
-        scrollToBottom()
-        
-        // 保存聊天记录
-        const terminalInfo = getTerminalInfo()
-        if (terminalInfo) {
-          const finalContent = terminalStore.getAiMessages(tabId)[messageIndex]?.content || ''
-          window.electronAPI.history.saveChatRecords([
-            {
-              id: userMessage.id,
-              timestamp: userMessage.timestamp.getTime(),
-              ...terminalInfo,
-              role: 'user',
-              content: userMessage.content
-            },
-            {
-              id: assistantMessage.id,
-              timestamp: Date.now(),
-              ...terminalInfo,
-              role: 'assistant',
-              content: finalContent
-            }
-          ])
-        }
-      },
-      error => {
-        terminalStore.updateAiMessage(tabId, messageIndex, `错误: ${error}`)
-        terminalStore.setAiLoading(tabId, false)
-      },
-      undefined,  // profileId
-      tabId       // requestId - 使用 tabId 区分不同终端的请求
-    )
-  } catch (error) {
-    terminalStore.updateAiMessage(tabId, messageIndex, `错误: ${error}`)
-    terminalStore.setAiLoading(tabId, false)
-  }
-}
-
-// 解释命令
-const explainCommand = async (command: string) => {
-  if (isLoading.value || !currentTabId.value) return
-
-  const tabId = currentTabId.value
-  const userMessage: AiMessage = {
-    id: Date.now().toString(),
-    role: 'user',
-    content: `请解释这个命令：\`${command}\``,
-    timestamp: new Date()
-  }
-  terminalStore.addAiMessage(tabId, userMessage)
-  terminalStore.setAiLoading(tabId, true)
-  await scrollToBottom()
-
-  const assistantMessage: AiMessage = {
-    id: (Date.now() + 1).toString(),
-    role: 'assistant',
-    content: '分析中...',
-    timestamp: new Date()
-  }
-  const messageIndex = terminalStore.addAiMessage(tabId, assistantMessage)
-  await scrollToBottom()
-
-  let firstChunk = true
-  const info = currentSystemInfo.value
-  const osContext = info ? `当前用户使用的是 ${info.os === 'windows' ? 'Windows' : info.os === 'macos' ? 'macOS' : 'Linux'} 系统，Shell 类型是 ${info.shell}。` : ''
-  
-  window.electronAPI.ai.chatStream(
-    [
-      {
-        role: 'system',
-        content: `你是一个专业的系统管理员助手。${osContext}用户会给你一个命令，请用中文简洁地解释这个命令的作用、参数含义，以及可能的注意事项。`
-      },
-      { role: 'user', content: `请解释这个命令：\n\`\`\`\n${command}\n\`\`\`` }
-    ],
-    chunk => {
-      const currentContent = terminalStore.getAiMessages(tabId)[messageIndex]?.content || ''
-      if (firstChunk) {
-        terminalStore.updateAiMessage(tabId, messageIndex, chunk)
-        firstChunk = false
-      } else {
-        terminalStore.updateAiMessage(tabId, messageIndex, currentContent + chunk)
-      }
-      scrollToBottom()
-    },
-    () => {
-      terminalStore.setAiLoading(tabId, false)
-      scrollToBottom()
-    },
-    error => {
-      terminalStore.updateAiMessage(tabId, messageIndex, `错误: ${error}`)
-      terminalStore.setAiLoading(tabId, false)
-    },
-    undefined,
-    tabId
-  )
-}
-
-// 生成命令
-const generateCommand = async (description: string) => {
-  if (isLoading.value || !currentTabId.value) return
-
-  const tabId = currentTabId.value
-  const userMessage: AiMessage = {
-    id: Date.now().toString(),
-    role: 'user',
-    content: description,
-    timestamp: new Date()
-  }
-  terminalStore.addAiMessage(tabId, userMessage)
-  terminalStore.setAiLoading(tabId, true)
-  await scrollToBottom()
-
-  const assistantMessage: AiMessage = {
-    id: (Date.now() + 1).toString(),
-    role: 'assistant',
-    content: '生成中...',
-    timestamp: new Date()
-  }
-  const messageIndex = terminalStore.addAiMessage(tabId, assistantMessage)
-  await scrollToBottom()
-
-  let firstChunk = true
-  const info = currentSystemInfo.value
-  let systemContext = ''
-  if (info) {
-    const osNames: Record<string, string> = { windows: 'Windows', linux: 'Linux', macos: 'macOS', unknown: '未知' }
-    const shellNames: Record<string, string> = { powershell: 'PowerShell', cmd: 'CMD', bash: 'Bash', zsh: 'Zsh', sh: 'Shell', unknown: '未知' }
-    systemContext = `当前操作系统是 ${osNames[info.os]}，Shell 类型是 ${shellNames[info.shell]}。请生成适合该环境的命令。`
-  } else {
-    systemContext = `当前操作系统平台: ${navigator.platform}。`
-  }
-  
-  window.electronAPI.ai.chatStream(
-    [
-      {
-        role: 'system',
-        content: `你是一个专业的命令行助手。${systemContext} 用户会用自然语言描述他想做的事情，请生成对应的命令并简要解释。`
-      },
-      { role: 'user', content: description }
-    ],
-    chunk => {
-      const currentContent = terminalStore.getAiMessages(tabId)[messageIndex]?.content || ''
-      if (firstChunk) {
-        terminalStore.updateAiMessage(tabId, messageIndex, chunk)
-        firstChunk = false
-      } else {
-        terminalStore.updateAiMessage(tabId, messageIndex, currentContent + chunk)
-      }
-      scrollToBottom()
-    },
-    () => {
-      terminalStore.setAiLoading(tabId, false)
-      scrollToBottom()
-    },
-    error => {
-      terminalStore.updateAiMessage(tabId, messageIndex, `错误: ${error}`)
-      terminalStore.setAiLoading(tabId, false)
-    },
-    undefined,
-    tabId
-  )
-}
+// ==================== 消息清空 ====================
 
 // 清空对话（包括 Agent 状态和历史）
 const clearMessages = () => {
@@ -569,933 +147,10 @@ const clearMessages = () => {
     terminalStore.clearAgentState(currentTabId.value, false)  // 不保留历史
   }
   // 清空上传的文档
-  uploadedDocs.value = []
+  clearUploadedDocs()
 }
 
-// ==================== 文档上传功能 ====================
-
-// 选择并上传文档
-const selectAndUploadDocs = async () => {
-  if (isUploadingDocs.value) return
-  
-  try {
-    isUploadingDocs.value = true
-    
-    // 选择文件
-    const documentAPI = (window.electronAPI as { document: typeof window.electronAPI.document }).document
-    const { canceled, files } = await documentAPI.selectFiles()
-    if (canceled || files.length === 0) {
-      isUploadingDocs.value = false
-      return
-    }
-    
-    // 解析文档
-    const parsedDocs = await documentAPI.parseMultiple(files)
-    
-    // 添加到已上传列表（追加而非替换）
-    uploadedDocs.value = [...uploadedDocs.value, ...parsedDocs]
-    
-    // 显示解析结果摘要
-    const successCount = parsedDocs.filter((d: ParsedDocument) => !d.error).length
-    const errorCount = parsedDocs.filter((d: ParsedDocument) => d.error).length
-    
-    if (errorCount > 0) {
-      console.warn(`文档解析: ${successCount} 成功, ${errorCount} 失败`)
-    }
-  } catch (error) {
-    console.error('上传文档失败:', error)
-  } finally {
-    isUploadingDocs.value = false
-  }
-}
-
-// 移除已上传的文档
-const removeUploadedDoc = (index: number) => {
-  uploadedDocs.value.splice(index, 1)
-}
-
-// 清空所有上传的文档
-const clearUploadedDocs = () => {
-  uploadedDocs.value = []
-}
-
-// 格式化文件大小
-const formatFileSize = (bytes: number): string => {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-// 获取文档上下文（用于发送给 AI）
-const getDocumentContext = async (): Promise<string> => {
-  const validDocs = uploadedDocs.value.filter(d => !d.error && d.content)
-  if (validDocs.length === 0) return ''
-  
-  // 将 Vue Proxy 对象转换为普通对象，避免 IPC 序列化错误
-  const plainDocs = JSON.parse(JSON.stringify(validDocs))
-  
-  const documentAPI = (window.electronAPI as { document: typeof window.electronAPI.document }).document
-  return await documentAPI.formatAsContext(plainDocs)
-}
-
-// 停止生成
-const stopGeneration = async () => {
-  if (currentTabId.value) {
-    // 传入 tabId 只中止当前终端的请求，不影响其他终端
-    await window.electronAPI.ai.abort(currentTabId.value)
-    terminalStore.setAiLoading(currentTabId.value, false)
-  }
-}
-
-// 诊断错误
-const diagnoseError = async () => {
-  const error = lastError.value
-  if (!error || isLoading.value || !currentTabId.value) return
-
-  const tabId = currentTabId.value
-  
-  // 切换到对话模式
-  agentMode.value = false
-  
-  // 清除错误提示
-  if (terminalStore.activeTab) {
-    terminalStore.clearError(terminalStore.activeTab.id)
-  }
-
-  const userMessage: AiMessage = {
-    id: Date.now().toString(),
-    role: 'user',
-    content: `请帮我分析这个错误：\n\`\`\`\n${error.content}\n\`\`\``,
-    timestamp: new Date()
-  }
-  terminalStore.addAiMessage(tabId, userMessage)
-  terminalStore.setAiLoading(tabId, true)
-  await scrollToBottom()
-
-  const assistantMessage: AiMessage = {
-    id: (Date.now() + 1).toString(),
-    role: 'assistant',
-    content: '诊断中...',
-    timestamp: new Date()
-  }
-  const messageIndex = terminalStore.addAiMessage(tabId, assistantMessage)
-  await scrollToBottom()
-
-  const info = currentSystemInfo.value
-  const osContext = info ? `当前用户使用的是 ${info.os === 'windows' ? 'Windows' : info.os === 'macos' ? 'macOS' : 'Linux'} 系统，Shell 类型是 ${info.shell}。` : ''
-
-  let firstChunk = true
-  window.electronAPI.ai.chatStream(
-    [
-      {
-        role: 'system',
-        content: `你是一个专业的运维工程师助手。${osContext}用户会给你一个错误信息，请用中文分析错误原因，并提供可能的解决方案。`
-      },
-      { role: 'user', content: `请分析这个错误并提供解决方案：\n\`\`\`\n${error.content}\n\`\`\`` }
-    ],
-    chunk => {
-      const currentContent = terminalStore.getAiMessages(tabId)[messageIndex]?.content || ''
-      if (firstChunk) {
-        terminalStore.updateAiMessage(tabId, messageIndex, chunk)
-        firstChunk = false
-      } else {
-        terminalStore.updateAiMessage(tabId, messageIndex, currentContent + chunk)
-      }
-      scrollToBottom()
-    },
-    () => {
-      terminalStore.setAiLoading(tabId, false)
-      scrollToBottom()
-    },
-    err => {
-      terminalStore.updateAiMessage(tabId, messageIndex, `错误: ${err}`)
-      terminalStore.setAiLoading(tabId, false)
-    },
-    undefined,
-    tabId
-  )
-}
-
-// 分析选中的终端内容
-const analyzeSelection = async () => {
-  const selection = terminalSelectedText.value
-  if (!selection || isLoading.value || !currentTabId.value) return
-
-  // 切换到对话模式
-  agentMode.value = false
-
-  const tabId = currentTabId.value
-  const userMessage: AiMessage = {
-    id: Date.now().toString(),
-    role: 'user',
-    content: `请帮我分析这段终端输出：\n\`\`\`\n${selection}\n\`\`\``,
-    timestamp: new Date()
-  }
-  terminalStore.addAiMessage(tabId, userMessage)
-  terminalStore.setAiLoading(tabId, true)
-  await scrollToBottom()
-
-  const assistantMessage: AiMessage = {
-    id: (Date.now() + 1).toString(),
-    role: 'assistant',
-    content: '分析中...',
-    timestamp: new Date()
-  }
-  const messageIndex = terminalStore.addAiMessage(tabId, assistantMessage)
-  await scrollToBottom()
-
-  const info = currentSystemInfo.value
-  const osContext = info ? `当前用户使用的是 ${info.os === 'windows' ? 'Windows' : info.os === 'macos' ? 'macOS' : 'Linux'} 系统，Shell 类型是 ${info.shell}。` : ''
-
-  let firstChunk = true
-  window.electronAPI.ai.chatStream(
-    [
-      {
-        role: 'system',
-        content: `你是一个专业的运维工程师助手。${osContext}用户会给你一段终端输出，请用中文分析这段内容，解释其含义，如果有错误请提供解决方案。`
-      },
-      { role: 'user', content: `请分析这段终端输出：\n\`\`\`\n${selection}\n\`\`\`` }
-    ],
-    chunk => {
-      const currentContent = terminalStore.getAiMessages(tabId)[messageIndex]?.content || ''
-      if (firstChunk) {
-        terminalStore.updateAiMessage(tabId, messageIndex, chunk)
-        firstChunk = false
-      } else {
-        terminalStore.updateAiMessage(tabId, messageIndex, currentContent + chunk)
-      }
-      scrollToBottom()
-    },
-    () => {
-      terminalStore.setAiLoading(tabId, false)
-      scrollToBottom()
-    },
-    err => {
-      terminalStore.updateAiMessage(tabId, messageIndex, `错误: ${err}`)
-      terminalStore.setAiLoading(tabId, false)
-    },
-    undefined,
-    tabId
-  )
-}
-
-// 分析从右键菜单发来的终端内容
-const analyzeTerminalContent = async (text: string) => {
-  if (!text || isLoading.value || !currentTabId.value) return
-
-  const tabId = currentTabId.value
-  const userMessage: AiMessage = {
-    id: Date.now().toString(),
-    role: 'user',
-    content: `请帮我分析这段终端内容：\n\`\`\`\n${text}\n\`\`\``,
-    timestamp: new Date()
-  }
-  terminalStore.addAiMessage(tabId, userMessage)
-  terminalStore.setAiLoading(tabId, true)
-  await scrollToBottom()
-
-  const assistantMessage: AiMessage = {
-    id: (Date.now() + 1).toString(),
-    role: 'assistant',
-    content: '分析中...',
-    timestamp: new Date()
-  }
-  const messageIndex = terminalStore.addAiMessage(tabId, assistantMessage)
-  await scrollToBottom()
-
-  const info = currentSystemInfo.value
-  const osContext = info ? `当前用户使用的是 ${info.os === 'windows' ? 'Windows' : info.os === 'macos' ? 'macOS' : 'Linux'} 系统，Shell 类型是 ${info.shell}。` : ''
-
-  let firstChunk = true
-  window.electronAPI.ai.chatStream(
-    [
-      {
-        role: 'system',
-        content: `你是一个专业的运维工程师助手。${osContext}用户会给你一段终端内容，请用中文分析这段内容，解释其含义，如果有错误请提供解决方案。`
-      },
-      { role: 'user', content: `请分析这段终端内容：\n\`\`\`\n${text}\n\`\`\`` }
-    ],
-    chunk => {
-      const currentContent = terminalStore.getAiMessages(tabId)[messageIndex]?.content || ''
-      if (firstChunk) {
-        terminalStore.updateAiMessage(tabId, messageIndex, chunk)
-        firstChunk = false
-      } else {
-        terminalStore.updateAiMessage(tabId, messageIndex, currentContent + chunk)
-      }
-      scrollToBottom()
-    },
-    () => {
-      terminalStore.setAiLoading(tabId, false)
-      scrollToBottom()
-    },
-    err => {
-      terminalStore.updateAiMessage(tabId, messageIndex, `错误: ${err}`)
-      terminalStore.setAiLoading(tabId, false)
-    },
-    undefined,
-    tabId
-  )
-}
-
-// 监听右键菜单发送到 AI 的文本
-watch(() => terminalStore.pendingAiText, (text) => {
-  if (text) {
-    analyzeTerminalContent(text)
-    terminalStore.clearPendingAiText()
-  }
-}, { immediate: true })
-
-// 复制消息
-const copyMessage = async (content: string) => {
-  try {
-    await navigator.clipboard.writeText(content)
-    // 可以添加一个提示
-  } catch (error) {
-    console.error('复制失败:', error)
-  }
-}
-
-// 配置 marked 渲染器
-const renderer = new marked.Renderer()
-
-// 自定义代码块渲染（添加复制按钮）
-// 使用 data 属性标记，通过事件委托处理点击，解决流式输出时按钮不可用的问题
-// 兼容 marked 不同版本的 API
-renderer.code = (codeOrToken: string | { text: string; lang?: string }, language?: string) => {
-  // 兼容新旧版本 marked API
-  let code: string
-  let lang: string
-  
-  if (typeof codeOrToken === 'object' && codeOrToken !== null) {
-    // 新版本 marked，参数是 token 对象
-    code = codeOrToken.text || ''
-    lang = codeOrToken.lang || 'text'
-  } else {
-    // 旧版本 marked，参数是分散的
-    code = codeOrToken as string
-    lang = language || 'text'
-  }
-  
-  // 转义 HTML 特殊字符用于显示
-  const escapedCode = code
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-  
-  // 始终渲染按钮，通过事件委托在点击时获取代码内容
-  const copyBtn = `<button class="code-copy-btn" data-action="copy" title="复制代码"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`
-  
-  const sendBtn = `<button class="code-send-btn" data-action="send" title="发送到终端"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg></button>`
-  
-  return `<div class="code-block"><div class="code-header"><span>${lang}</span><div class="code-actions">${sendBtn}${copyBtn}</div></div><pre><code>${escapedCode}</code></pre></div>`
-}
-
-// 自定义行内代码渲染
-renderer.codespan = (code: string) => {
-  return `<code class="inline-code">${code}</code>`
-}
-
-// 配置 marked
-marked.setOptions({
-  renderer,
-  breaks: true,  // 支持换行
-  gfm: true      // 支持 GitHub 风格 Markdown
-})
-
-// 渲染 Markdown 格式
-const renderMarkdown = (text: string): string => {
-  if (!text) return ''
-  
-  try {
-    return marked.parse(text) as string
-  } catch (e) {
-    // 如果解析失败，返回转义后的纯文本
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\n/g, '<br>')
-  }
-}
-
-// 从代码块中提取代码内容（反转义 HTML）
-const getCodeFromBlock = (button: HTMLElement): string => {
-  const codeBlock = button.closest('.code-block')
-  const codeElement = codeBlock?.querySelector('pre code')
-  if (!codeElement) return ''
-  
-  // 获取文本内容（自动反转义 HTML 实体）
-  return codeElement.textContent || ''
-}
-
-// 事件委托处理代码块按钮点击
-const handleCodeBlockClick = async (event: MouseEvent) => {
-  const target = event.target as HTMLElement
-  
-  // 调试：显示点击的元素
-  console.log('点击元素:', target.tagName, target.className)
-  
-  // 查找带有 data-action 属性的按钮（可能点击的是 SVG 或其子元素）
-  const button = target.closest('.code-copy-btn, .code-send-btn') as HTMLElement
-  if (!button) {
-    console.log('未找到按钮元素')
-    return
-  }
-  
-  console.log('找到按钮:', button.className, 'data-action:', button.dataset.action)
-  
-  const action = button.dataset.action
-  const code = getCodeFromBlock(button)
-  
-  console.log('Code block action:', action, 'Code length:', code.length)
-  
-  if (!code) {
-    console.warn('未能获取代码内容')
-    return
-  }
-  
-  if (action === 'copy') {
-    try {
-      await navigator.clipboard.writeText(code)
-      console.log('代码已复制')
-    } catch (error) {
-      console.error('复制代码失败:', error)
-    }
-  } else if (action === 'send') {
-    try {
-      const activeTab = terminalStore.activeTab
-      console.log('Active tab:', activeTab?.id, 'ptyId:', activeTab?.ptyId)
-      if (activeTab?.ptyId) {
-        // 发送代码到终端（不自动添加回车，让用户确认后再执行）
-        await terminalStore.writeToTerminal(activeTab.id, code)
-        // 自动让终端获得焦点，方便用户按回车执行
-        terminalStore.focusTerminal(activeTab.id)
-        console.log('代码已发送到终端')
-      } else {
-        console.warn('没有活动的终端')
-      }
-    } catch (error) {
-      console.error('发送到终端失败:', error)
-    }
-  }
-}
-
-// 事件监听通过模板 @click 绑定到 messagesRef
-
-// 快捷操作
-const quickActions = [
-  { label: '解释命令', icon: '💡', action: () => explainCommand(terminalSelectedText.value || 'ls -la') },
-  { label: '查找文件', icon: '🔍', action: () => generateCommand('查找当前目录下所有的日志文件') },
-  { label: '查看进程', icon: '📊', action: () => generateCommand('查看占用内存最多的前10个进程') },
-  { label: '磁盘空间', icon: '💾', action: () => generateCommand('查看磁盘空间使用情况') }
-]
-
-// ==================== Agent 模式功能 ====================
-
-// 保存 Agent 记录到历史
-const saveAgentRecord = (
-  _tabId: string,
-  userTask: string,
-  startTime: number,
-  status: 'completed' | 'failed' | 'aborted',
-  finalResult?: string
-) => {
-  const terminalInfo = getTerminalInfo()
-  if (!terminalInfo) return
-  
-  const steps = agentState.value?.steps || []
-  // 过滤掉 user_task 和 final_result 类型，只保留执行步骤
-  const executionSteps = steps
-    .filter(s => s.type !== 'user_task' && s.type !== 'final_result')
-    .map(s => ({
-      id: s.id,
-      type: s.type,
-      content: s.content,
-      toolName: s.toolName,
-      toolArgs: s.toolArgs ? JSON.parse(JSON.stringify(s.toolArgs)) : undefined,
-      toolResult: s.toolResult,
-      riskLevel: s.riskLevel,
-      timestamp: s.timestamp
-    }))
-  
-  // 使用 JSON.parse(JSON.stringify()) 确保移除所有 Vue Proxy，避免 IPC 序列化错误
-  const record = JSON.parse(JSON.stringify({
-    id: `agent_${startTime}`,
-    timestamp: startTime,
-    ...terminalInfo,
-    userTask,
-    steps: executionSteps,
-    finalResult,
-    duration: Date.now() - startTime,
-    status
-  }))
-  
-  window.electronAPI.history.saveAgentRecord(record).catch(err => {
-    console.error('保存 Agent 历史记录失败:', err)
-  })
-}
-
-// ==================== 主机档案 ====================
-
-// 主机档案类型
-interface HostProfile {
-  hostId: string
-  hostname: string
-  username: string
-  os: string
-  osVersion: string
-  shell: string
-  packageManager?: string
-  installedTools: string[]
-  notes: string[]
-  lastProbed: number
-  lastUpdated: number
-}
-
-// 当前主机档案
-const currentHostProfile = ref<HostProfile | null>(null)
-const isLoadingProfile = ref(false)
-const isProbing = ref(false)
-
-// 获取当前终端的主机 ID
-const getHostId = async (): Promise<string> => {
-  const activeTab = terminalStore.activeTab
-  if (!activeTab) return 'local'
-  
-  if (activeTab.type === 'ssh' && activeTab.sshConfig) {
-    return await window.electronAPI.hostProfile.generateHostId(
-      'ssh',
-      activeTab.sshConfig.host,
-      activeTab.sshConfig.username
-    )
-  }
-  return 'local'
-}
-
-// 加载当前主机档案
-const loadHostProfile = async () => {
-  isLoadingProfile.value = true
-  try {
-    const hostId = await getHostId()
-    currentHostProfile.value = await window.electronAPI.hostProfile.get(hostId)
-  } catch (e) {
-    console.error('[HostProfile] 加载失败:', e)
-  } finally {
-    isLoadingProfile.value = false
-  }
-}
-
-// 手动刷新主机档案
-const refreshHostProfile = async () => {
-  if (isProbing.value) return
-  
-  isProbing.value = true
-  try {
-    const hostId = await getHostId()
-    
-    if (hostId === 'local') {
-      // 本地主机：使用后台静默探测
-      currentHostProfile.value = await window.electronAPI.hostProfile.probeLocal()
-    } else {
-      // SSH 主机：暂时只从缓存加载（TODO: 实现 SSH 后台探测）
-      currentHostProfile.value = await window.electronAPI.hostProfile.get(hostId)
-    }
-    
-    console.log('[HostProfile] 刷新完成:', currentHostProfile.value)
-  } catch (e) {
-    console.error('[HostProfile] 刷新失败:', e)
-  } finally {
-    isProbing.value = false
-  }
-}
-
-// 总结 Agent 任务中的关键发现
-const summarizeAgentFindings = async (hostId: string) => {
-  const history = agentState.value?.history || []
-  const currentSteps = agentState.value?.steps || []
-  
-  // 收集最近的 Agent 交互内容
-  const recentInteractions: string[] = []
-  
-  // 添加历史任务
-  for (const item of history.slice(-3)) {  // 最近 3 个历史任务
-    recentInteractions.push(`任务: ${item.userTask}\n结果: ${item.finalResult}`)
-  }
-  
-  // 添加当前任务步骤
-  const currentTaskSteps = currentSteps.filter(s => 
-    s.type === 'tool_result' || s.type === 'message'
-  ).slice(-10)  // 最近 10 个步骤
-  
-  for (const step of currentTaskSteps) {
-    if (step.toolResult) {
-      recentInteractions.push(`命令输出: ${step.toolResult.substring(0, 500)}`)
-    } else if (step.content && step.type === 'message') {
-      recentInteractions.push(`AI 分析: ${step.content.substring(0, 300)}`)
-    }
-  }
-  
-  if (recentInteractions.length === 0) return
-  
-  // 获取当前已有的记忆
-  const existingProfile = await window.electronAPI.hostProfile.get(hostId)
-  const existingNotes = existingProfile?.notes || []
-  
-  // 让 AI 更新记忆（新增、更新、删除）
-  try {
-    const prompt = `你是主机信息管理助手。请精简更新主机的记忆信息。
-
-## 当前已有记忆
-${existingNotes.length > 0 ? existingNotes.map((n: string) => `- ${n}`).join('\n') : '（空）'}
-
-## 最新交互记录
-${recentInteractions.join('\n\n')}
-
-## 任务
-输出更新后的记忆列表。**最多保留 5 条**最重要的信息。
-
-### 只记录这些（必须是用户可能再次需要的关键路径）：
-- 用户项目或应用的配置文件路径
-- 用户项目或应用的日志目录
-- 用户自定义的脚本或数据目录
-
-### 不要记录：
-- 系统默认路径（如 /etc/nginx/、/var/log/ 等常见路径）
-- 动态信息（端口、进程、状态、使用率）
-- 临时目录或缓存
-
-### 输出格式
-最多 10 条，每条一行：
-- 项目配置在 /home/user/myapp/config/
-- 应用日志在 /data/logs/myapp/
-
-如果没有值得记住的信息，只输出：无`
-
-    const response = await window.electronAPI.ai.chat([
-      { role: 'user', content: prompt }
-    ])
-    
-    if (response && response.trim()) {
-      if (response.trim() === '无' || response.includes('没有') && response.includes('信息')) {
-        // 清空所有记忆
-        if (existingNotes.length > 0) {
-          await window.electronAPI.hostProfile.update(hostId, { notes: [] })
-          console.log('[HostProfile] 清空了所有记忆')
-        }
-      } else {
-        // 解析新的记忆列表
-        // 过滤动态信息和系统默认路径
-        const dynamicPatterns = [
-          /端口/i, /port/i, /监听/i, /listen/i,
-          /进程/i, /process/i, /pid/i,
-          /运行中/i, /running/i, /stopped/i, /状态/i,
-          /使用率/i, /占用/i, /usage/i,
-          /\d+%/, /\d+mb/i, /\d+gb/i,
-          /连接/i, /connection/i,
-          /登录/i, /login/i
-        ]
-        // 系统默认路径不需要记录
-        const commonPaths = [
-          /^\/etc\/nginx\/?$/i,
-          /^\/var\/log\/?$/i,
-          /^\/usr\/local\/?$/i,
-          /^\/home\/?$/i,
-          /^\/root\/?$/i
-        ]
-        
-        const newNotes = response.split('\n')
-          .map(l => l.replace(/^[-•✅❌]\s*/, '').trim())
-          .filter(l => {
-            if (!l || l.length < 10 || l.length > 80) return false
-            if (l.includes('输出') || l.includes('格式') || l.includes('最多')) return false
-            if (dynamicPatterns.some(p => p.test(l))) return false
-            if (!l.includes('/') && !l.includes('\\')) return false
-            // 提取路径部分检查是否是常见默认路径
-            const pathMatch = l.match(/[\/\\][\w\/\\\-\.]+/)
-            if (pathMatch && commonPaths.some(p => p.test(pathMatch[0]))) return false
-            return true
-          })
-          .slice(0, 5)  // 最多保留 5 条
-        
-        // 替换整个记忆列表
-        await window.electronAPI.hostProfile.update(hostId, { notes: newNotes })
-        console.log('[HostProfile] 更新记忆:', newNotes)
-      }
-    }
-  } catch (e) {
-    console.warn('[HostProfile] AI 总结失败:', e)
-  }
-}
-
-// 自动探测主机信息（首次加载时）
-const autoProbeHostProfile = async (): Promise<void> => {
-  try {
-    const hostId = await getHostId()
-    
-    // 检查是否需要探测
-    const needsProbe = await window.electronAPI.hostProfile.needsProbe(hostId)
-    if (!needsProbe) return
-    
-    if (hostId === 'local') {
-      // 本地主机：后台静默探测
-      const profile = await window.electronAPI.hostProfile.probeLocal()
-      currentHostProfile.value = profile
-      console.log('[HostProfile] 自动探测完成:', profile)
-    } else {
-      // SSH 主机：通过 SSH 连接探测
-      const activeTab = terminalStore.activeTab
-      if (activeTab?.type === 'ssh' && activeTab.ptyId) {
-        const profile = await window.electronAPI.hostProfile.probeSsh(activeTab.ptyId, hostId)
-        if (profile) {
-          currentHostProfile.value = profile
-          console.log('[HostProfile] SSH 自动探测完成:', profile)
-        }
-      }
-    }
-  } catch (e) {
-    console.error('[HostProfile] 自动探测失败:', e)
-  }
-}
-
-// 运行 Agent
-const runAgent = async () => {
-  if (!inputText.value.trim() || isAgentRunning.value || !currentTabId.value) return
-
-  const tabId = currentTabId.value
-  const message = inputText.value
-  const startTime = Date.now()  // 记录开始时间
-  inputText.value = ''
-
-  // 获取 Agent 上下文
-  const context = terminalStore.getAgentContext(tabId)
-  if (!context || !context.ptyId) {
-    console.error('无法获取终端上下文')
-    return
-  }
-
-  // 获取主机 ID
-  const hostId = await getHostId()
-
-  // 首次运行时自动探测主机信息（后台执行，不阻塞）
-  autoProbeHostProfile().catch(e => {
-    console.warn('[Agent] 主机探测失败:', e)
-  })
-
-  // 准备新任务（保留之前的步骤）
-  terminalStore.clearAgentState(tabId, true)
-  
-  // 从 Agent 历史中构建上下文消息
-  const currentHistory = agentState.value?.history || []
-  const historyMessages: { role: 'user' | 'assistant'; content: string }[] = []
-  for (const item of currentHistory) {
-    historyMessages.push({ role: 'user', content: item.userTask })
-    historyMessages.push({ role: 'assistant', content: item.finalResult })
-  }
-  
-  // 获取文档上下文
-  const documentContext = await getDocumentContext()
-
-  // 添加用户任务到步骤中（作为对话流的一部分）
-  terminalStore.addAgentStep(tabId, {
-    id: `user_task_${Date.now()}`,
-    type: 'user_task',
-    content: message,
-    timestamp: Date.now()
-  })
-  await scrollToBottom()
-
-  // 设置 Agent 状态：正在运行 + 用户任务
-  terminalStore.setAgentRunning(tabId, true, undefined, message)
-
-  let result: { success: boolean; result?: string; error?: string } | null = null
-  let finalContent = ''
-  
-  try {
-    // 调用 Agent API，传递配置
-    result = await window.electronAPI.agent.run(
-      context.ptyId,
-      message,
-      {
-        ...context,
-        hostId,  // 主机档案 ID
-        historyMessages,  // 添加历史对话
-        documentContext   // 添加文档上下文
-      } as { ptyId: string; terminalOutput: string[]; systemInfo: { os: string; shell: string }; hostId?: string; historyMessages?: { role: string; content: string }[]; documentContext?: string },
-      { strictMode: strictMode.value, commandTimeout: commandTimeout.value * 1000 }  // 传递配置（超时时间转为毫秒）
-    )
-
-    // 添加最终结果到步骤中
-    if (!result.success) {
-      finalContent = `❌ Agent 执行失败: ${result.error}`
-    } else if (result.result) {
-      finalContent = result.result
-    }
-    
-    if (finalContent) {
-      terminalStore.addAgentStep(tabId, {
-        id: `final_result_${Date.now()}`,
-        type: 'final_result',
-        content: finalContent,
-        timestamp: Date.now()
-      })
-      terminalStore.setAgentFinalResult(tabId, finalContent)
-    }
-    
-    // 保存 Agent 记录
-    saveAgentRecord(tabId, message, startTime, result.success ? 'completed' : 'failed', finalContent)
-    
-    // Agent 完成后自动总结关键信息并更新记忆（后台执行）
-    summarizeAgentFindings(hostId).catch(e => {
-      console.warn('[Agent] 总结记忆失败:', e)
-    })
-  } catch (error) {
-    console.error('Agent 运行失败:', error)
-    finalContent = `❌ Agent 运行出错: ${error instanceof Error ? error.message : '未知错误'}`
-    terminalStore.addAgentStep(tabId, {
-      id: `final_result_${Date.now()}`,
-      type: 'final_result',
-      content: finalContent,
-      timestamp: Date.now()
-    })
-    terminalStore.setAgentFinalResult(tabId, finalContent)
-    
-    // 保存失败的 Agent 记录
-    saveAgentRecord(tabId, message, startTime, 'failed', finalContent)
-  } finally {
-    // 无论成功还是失败，都确保重置 Agent 运行状态
-    console.log('[Agent] finally block executing, resetting isRunning for tabId:', tabId)
-    terminalStore.setAgentRunning(tabId, false)
-    console.log('[Agent] setAgentRunning called, current agentState:', terminalStore.getAgentState(tabId))
-  }
-
-  await scrollToBottom()
-}
-
-// 中止 Agent
-const abortAgent = async () => {
-  const agentId = agentState.value?.agentId
-  if (!agentId) return
-
-  try {
-    await window.electronAPI.agent.abort(agentId)
-  } catch (error) {
-    console.error('中止 Agent 失败:', error)
-  }
-}
-
-// 确认工具调用
-const confirmToolCall = async (approved: boolean) => {
-  const confirm = pendingConfirm.value
-  if (!confirm) return
-
-  try {
-    await window.electronAPI.agent.confirm(
-      confirm.agentId,
-      confirm.toolCallId,
-      approved
-    )
-    // 清除待确认状态
-    if (currentTabId.value) {
-      terminalStore.setAgentPendingConfirm(currentTabId.value, undefined)
-    }
-  } catch (error) {
-    console.error('确认工具调用失败:', error)
-  }
-}
-
-// 获取步骤类型的图标
-const getStepIcon = (type: AgentStep['type']): string => {
-  switch (type) {
-    case 'thinking': return '🤔'
-    case 'tool_call': return '🔧'
-    case 'tool_result': return '📋'
-    case 'message': return '💬'
-    case 'error': return '❌'
-    case 'confirm': return '⚠️'
-    case 'user_task': return '👤'
-    case 'final_result': return '✅'
-    default: return '•'
-  }
-}
-
-// 获取风险等级的颜色类
-const getRiskClass = (riskLevel?: string): string => {
-  switch (riskLevel) {
-    case 'safe': return 'risk-safe'
-    case 'moderate': return 'risk-moderate'
-    case 'dangerous': return 'risk-dangerous'
-    case 'blocked': return 'risk-blocked'
-    default: return ''
-  }
-}
-
-// 设置 Agent 事件监听
-const setupAgentListeners = () => {
-  // 监听步骤更新
-  cleanupStepListener = window.electronAPI.agent.onStep((data) => {
-    // 优先使用 agentId 查找对应的终端，如果找不到则使用当前终端
-    const tabId = terminalStore.findTabIdByAgentId(data.agentId) || currentTabId.value
-    if (tabId) {
-      terminalStore.addAgentStep(tabId, data.step)
-      // 只设置 agentId 用于关联，不改变 isRunning 状态
-      // 因为 IPC 事件可能在 runAgent 的 finally 块之后到达
-      terminalStore.setAgentId(tabId, data.agentId)
-      scrollToBottom()
-    }
-  })
-
-  // 监听需要确认
-  cleanupConfirmListener = window.electronAPI.agent.onNeedConfirm((data) => {
-    const tabId = terminalStore.findTabIdByAgentId(data.agentId) || currentTabId.value
-    if (tabId) {
-      terminalStore.setAgentPendingConfirm(tabId, data)
-      scrollToBottom()
-    }
-  })
-
-  // 监听完成
-  cleanupCompleteListener = window.electronAPI.agent.onComplete((data) => {
-    const tabId = terminalStore.findTabIdByAgentId(data.agentId) || currentTabId.value
-    if (tabId) {
-      terminalStore.setAgentRunning(tabId, false)
-    }
-  })
-
-  // 监听错误
-  cleanupErrorListener = window.electronAPI.agent.onError((data) => {
-    const tabId = terminalStore.findTabIdByAgentId(data.agentId) || currentTabId.value
-    if (tabId) {
-      terminalStore.setAgentRunning(tabId, false)
-      terminalStore.addAgentStep(tabId, {
-        id: `error_${Date.now()}`,
-        type: 'error',
-        content: data.error,
-        timestamp: Date.now()
-      })
-    }
-  })
-}
-
-// 清理 Agent 事件监听
-const cleanupAgentListeners = () => {
-  if (cleanupStepListener) {
-    cleanupStepListener()
-    cleanupStepListener = null
-  }
-  if (cleanupConfirmListener) {
-    cleanupConfirmListener()
-    cleanupConfirmListener = null
-  }
-  if (cleanupCompleteListener) {
-    cleanupCompleteListener()
-    cleanupCompleteListener = null
-  }
-  if (cleanupErrorListener) {
-    cleanupErrorListener()
-    cleanupErrorListener = null
-  }
-}
+// ==================== 发送消息 ====================
 
 // 发送消息（根据模式选择普通对话或 Agent）
 const handleSend = () => {
@@ -1506,19 +161,32 @@ const handleSend = () => {
   }
 }
 
-// 生命周期
+// ==================== 右键菜单监听 ====================
+
+// 监听右键菜单发送到 AI 的文本
+watch(() => terminalStore.pendingAiText, (text) => {
+  if (text) {
+    analyzeTerminalContent(text)
+    terminalStore.clearPendingAiText()
+  }
+}, { immediate: true })
+
+// ==================== 诊断和分析（包装函数） ====================
+
+// 包装诊断错误函数
+const handleDiagnoseError = () => {
+  diagnoseError(agentMode)
+}
+
+// 包装分析选中内容函数
+const handleAnalyzeSelection = () => {
+  analyzeSelection(agentMode)
+}
+
+// ==================== 生命周期 ====================
+
 onMounted(() => {
-  setupAgentListeners()
   // 加载主机档案
-  loadHostProfile()
-})
-
-onUnmounted(() => {
-  cleanupAgentListeners()
-})
-
-// 监听终端切换，重新加载主机档案
-watch(() => terminalStore.activeTabId, () => {
   loadHostProfile()
 })
 </script>
@@ -1626,7 +294,7 @@ watch(() => terminalStore.activeTabId, () => {
           <div class="error-alert-title">检测到错误</div>
           <div class="error-alert-text">{{ lastError.content.slice(0, 80) }}{{ lastError.content.length > 80 ? '...' : '' }}</div>
         </div>
-        <button class="error-alert-btn" @click="diagnoseError" :disabled="isLoading">
+        <button class="error-alert-btn" @click="handleDiagnoseError" :disabled="isLoading">
           AI 诊断
         </button>
         <button class="error-alert-close" @click="terminalStore.clearError(terminalStore.activeTab?.id || '')">
@@ -1644,7 +312,7 @@ watch(() => terminalStore.activeTabId, () => {
           <div class="selection-alert-title">已选中终端内容</div>
           <div class="selection-alert-text">{{ terminalSelectedText.slice(0, 60) }}{{ terminalSelectedText.length > 60 ? '...' : '' }}</div>
         </div>
-        <button class="selection-alert-btn" @click="analyzeSelection" :disabled="isLoading">
+        <button class="selection-alert-btn" @click="handleAnalyzeSelection" :disabled="isLoading">
           AI 分析
         </button>
       </div>
@@ -3452,4 +2120,3 @@ watch(() => terminalStore.activeTabId, () => {
   border-color: #059669;
 }
 </style>
-
