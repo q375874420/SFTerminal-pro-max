@@ -15,13 +15,24 @@
 
 ## 功能特性
 
-- 🖥️ **跨平台支持**：Windows、macOS、Linux
-- 🤖 **AI 助手**：命令解释、错误诊断、自然语言生成命令
+### 终端功能
+- 🖥️ **跨平台支持**：Windows、macOS、Linux 全平台覆盖
 - 🔐 **SSH 管理**：支持密码和私钥认证，会话分组管理
 - 📥 **Xshell 导入**：一键导入 Xshell 会话配置，快速迁移
 - 🎨 **丰富主题**：内置多款精美配色方案
 - ⚡ **高性能**：基于 xterm.js，流畅的终端体验
-- 🏢 **内网友好**：支持配置内网 AI API 和代理
+
+### AI 能力
+- 🤖 **AI Agent 模式**：描述任务，Agent 自动规划并执行多步命令，支持严格模式下危险命令确认
+- 💬 **智能对话**：命令解释、错误诊断、自然语言生成命令，流式响应实时输出
+- 📊 **终端内容分析**：选中终端输出，右键一键分析，快速定位问题
+- 📄 **文档上传**：上传 PDF、文本等文档作为 AI 上下文，让 AI 结合文档内容回答问题
+- 🧠 **主机记忆**：自动探测主机信息，跨会话记忆关键路径和配置，让 AI 更了解你的环境
+- 📈 **上下文统计**：实时显示 Token 使用量和上下文占比，避免超出限制
+
+### 企业特性
+- 🏢 **内网友好**：支持配置内网 AI API 和 HTTP/SOCKS 代理
+- 🔒 **数据安全**：所有数据本地存储，支持私有化部署的 AI 模型
 
 ## 技术栈
 
@@ -105,11 +116,22 @@ npm run build:linux
 │   └── services/           # 服务层
 │       ├── pty.service.ts  # 本地终端
 │       ├── ssh.service.ts  # SSH 连接
-│       ├── ai.service.ts   # AI API
+│       ├── ai.service.ts   # AI API 对话
+│       ├── agent.service.ts       # AI Agent 执行
+│       ├── host-profile.service.ts # 主机档案
+│       ├── document-parser.service.ts # 文档解析
+│       ├── history.service.ts     # 历史记录
 │       ├── config.service.ts
 │       └── xshell-import.service.ts  # Xshell 导入
 ├── src/                    # Vue 渲染进程
 │   ├── components/         # 组件
+│   ├── composables/        # 组合式函数
+│   │   ├── useAgentMode.ts    # Agent 模式逻辑
+│   │   ├── useAiChat.ts       # AI 对话逻辑
+│   │   ├── useHostProfile.ts  # 主机档案管理
+│   │   ├── useDocumentUpload.ts # 文档上传
+│   │   ├── useContextStats.ts # 上下文统计
+│   │   └── useMarkdown.ts     # Markdown 渲染
 │   ├── stores/            # Pinia 状态
 │   └── themes/            # 主题配色
 ├── resources/             # 应用图标
