@@ -2,12 +2,15 @@
  * Agent 工具定义
  */
 import type { ToolDefinition } from '../ai.service'
+import type { McpService } from '../mcp.service'
 
 /**
  * 获取可用工具定义
+ * @param mcpService 可选的 MCP 服务，用于动态加载 MCP 工具
  */
-export function getAgentTools(): ToolDefinition[] {
-  return [
+export function getAgentTools(mcpService?: McpService): ToolDefinition[] {
+  // 内置工具
+  const builtinTools: ToolDefinition[] = [
     {
       type: 'function',
       function: {
@@ -126,4 +129,12 @@ export function getAgentTools(): ToolDefinition[] {
       }
     }
   ]
+
+  // 如果有 MCP 服务，添加 MCP 工具
+  if (mcpService) {
+    const mcpTools = mcpService.getToolDefinitions()
+    return [...builtinTools, ...mcpTools]
+  }
+
+  return builtinTools
 }

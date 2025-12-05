@@ -4,13 +4,14 @@ import * as fs from 'fs'
 import { PtyService } from './services/pty.service'
 import { SshService } from './services/ssh.service'
 import { AiService } from './services/ai.service'
-import { ConfigService } from './services/config.service'
+import { ConfigService, McpServerConfig } from './services/config.service'
 import { XshellImportService } from './services/xshell-import.service'
 import { AgentService, AgentStep, PendingConfirmation, AgentContext } from './services/agent'
 import { HistoryService, ChatRecord, AgentRecord } from './services/history.service'
 import { HostProfileService, HostProfile } from './services/host-profile.service'
 import { getDocumentParserService, UploadedFile, ParseOptions, ParsedDocument } from './services/document-parser.service'
 import { SftpService, SftpConfig } from './services/sftp.service'
+import { McpService } from './services/mcp.service'
 
 // 禁用 GPU 加速可能导致的问题（可选）
 // app.disableHardwareAcceleration()
@@ -41,10 +42,25 @@ const aiService = new AiService()
 const configService = new ConfigService()
 const xshellImportService = new XshellImportService()
 const hostProfileService = new HostProfileService()
-const agentService = new AgentService(aiService, ptyService, hostProfileService)
+const mcpService = new McpService()
+const agentService = new AgentService(aiService, ptyService, hostProfileService, mcpService)
 const historyService = new HistoryService()
 const documentParserService = getDocumentParserService()
 const sftpService = new SftpService()
+
+// MCP 服务事件转发
+mcpService.on('connected', (serverId: string) => {
+  mainWindow?.webContents.send('mcp:connected', serverId)
+})
+mcpService.on('disconnected', (serverId: string) => {
+  mainWindow?.webContents.send('mcp:disconnected', serverId)
+})
+mcpService.on('error', (data: { serverId: string; error?: string }) => {
+  mainWindow?.webContents.send('mcp:error', data)
+})
+mcpService.on('refreshed', (serverId: string) => {
+  mainWindow?.webContents.send('mcp:refreshed', serverId)
+})
 
 function createWindow() {
   // 根据平台选择图标
@@ -106,10 +122,11 @@ app.whenReady().then(() => {
 
 // 所有窗口关闭时退出应用（Windows & Linux）
 app.on('window-all-closed', () => {
-  // 清理所有 PTY、SSH 和 SFTP 连接
+  // 清理所有 PTY、SSH、SFTP 和 MCP 连接
   ptyService.disposeAll()
   sshService.disposeAll()
   sftpService.disconnectAll()
+  mcpService.disconnectAll()
 
   if (process.platform !== 'darwin') {
     app.quit()
@@ -1015,5 +1032,136 @@ ipcMain.handle('sftp:selectSavePath', async (_event, defaultName: string) => {
   }
   
   return { canceled: false, path: result.filePath }
+})
+
+// ==================== MCP 相关 ====================
+
+// 获取 MCP 服务器配置列表
+ipcMain.handle('mcp:getServers', async () => {
+  return configService.getMcpServers()
+})
+
+// 保存 MCP 服务器配置列表
+ipcMain.handle('mcp:setServers', async (_event, servers: McpServerConfig[]) => {
+  configService.setMcpServers(servers)
+})
+
+// 添加 MCP 服务器
+ipcMain.handle('mcp:addServer', async (_event, server: McpServerConfig) => {
+  configService.addMcpServer(server)
+})
+
+// 更新 MCP 服务器
+ipcMain.handle('mcp:updateServer', async (_event, server: McpServerConfig) => {
+  configService.updateMcpServer(server)
+})
+
+// 删除 MCP 服务器
+ipcMain.handle('mcp:deleteServer', async (_event, id: string) => {
+  // 先断开连接
+  await mcpService.disconnect(id)
+  configService.deleteMcpServer(id)
+})
+
+// 连接到 MCP 服务器
+ipcMain.handle('mcp:connect', async (_event, config: McpServerConfig) => {
+  try {
+    await mcpService.connect(config)
+    return { success: true }
+  } catch (error) {
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : '连接失败' 
+    }
+  }
+})
+
+// 断开 MCP 服务器连接
+ipcMain.handle('mcp:disconnect', async (_event, serverId: string) => {
+  await mcpService.disconnect(serverId)
+})
+
+// 测试 MCP 服务器连接
+ipcMain.handle('mcp:testConnection', async (_event, config: McpServerConfig) => {
+  return mcpService.testConnection(config)
+})
+
+// 获取所有已连接服务器的状态
+ipcMain.handle('mcp:getServerStatuses', async () => {
+  return mcpService.getServerStatuses()
+})
+
+// 获取所有可用工具
+ipcMain.handle('mcp:getAllTools', async () => {
+  return mcpService.getAllTools()
+})
+
+// 获取所有可用资源
+ipcMain.handle('mcp:getAllResources', async () => {
+  return mcpService.getAllResources()
+})
+
+// 获取所有可用提示模板
+ipcMain.handle('mcp:getAllPrompts', async () => {
+  return mcpService.getAllPrompts()
+})
+
+// 调用 MCP 工具
+ipcMain.handle('mcp:callTool', async (_event, serverId: string, toolName: string, args: Record<string, unknown>) => {
+  return mcpService.callTool(serverId, toolName, args)
+})
+
+// 读取 MCP 资源
+ipcMain.handle('mcp:readResource', async (_event, serverId: string, uri: string) => {
+  return mcpService.readResource(serverId, uri)
+})
+
+// 获取 MCP 提示模板
+ipcMain.handle('mcp:getPrompt', async (_event, serverId: string, promptName: string, args?: Record<string, string>) => {
+  return mcpService.getPrompt(serverId, promptName, args)
+})
+
+// 刷新服务器的工具/资源/提示列表
+ipcMain.handle('mcp:refreshServer', async (_event, serverId: string) => {
+  try {
+    await mcpService.refreshServer(serverId)
+    return { success: true }
+  } catch (error) {
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : '刷新失败' 
+    }
+  }
+})
+
+// 检查服务器是否已连接
+ipcMain.handle('mcp:isConnected', async (_event, serverId: string) => {
+  return mcpService.isConnected(serverId)
+})
+
+// 连接所有启用的 MCP 服务器
+ipcMain.handle('mcp:connectEnabledServers', async () => {
+  const servers = configService.getEnabledMcpServers()
+  const results: Array<{ id: string; success: boolean; error?: string }> = []
+  
+  for (const server of servers) {
+    try {
+      await mcpService.connect(server)
+      results.push({ id: server.id, success: true })
+    } catch (error) {
+      results.push({ 
+        id: server.id, 
+        success: false, 
+        error: error instanceof Error ? error.message : '连接失败' 
+      })
+    }
+  }
+  
+  return results
+})
+
+// 断开所有 MCP 连接
+ipcMain.handle('mcp:disconnectAll', async () => {
+  await mcpService.disconnectAll()
 })
 

@@ -5,6 +5,7 @@
 import type { AiService, AiMessage, ToolCall, ChatWithToolsResult } from '../ai.service'
 import { CommandExecutorService } from '../command-executor.service'
 import type { PtyService } from '../pty.service'
+import type { McpService } from '../mcp.service'
 
 // 导入子模块
 import type {
@@ -42,6 +43,7 @@ export class AgentService {
   private commandExecutor: CommandExecutorService
   private ptyService: PtyService
   private hostProfileService?: HostProfileServiceInterface
+  private mcpService?: McpService
   private runs: Map<string, AgentRun> = new Map()
 
   // 事件回调
@@ -54,12 +56,21 @@ export class AgentService {
   constructor(
     aiService: AiService, 
     ptyService: PtyService,
-    hostProfileService?: HostProfileServiceInterface
+    hostProfileService?: HostProfileServiceInterface,
+    mcpService?: McpService
   ) {
     this.aiService = aiService
     this.ptyService = ptyService
     this.hostProfileService = hostProfileService
+    this.mcpService = mcpService
     this.commandExecutor = new CommandExecutorService()
+  }
+
+  /**
+   * 设置 MCP 服务
+   */
+  setMcpService(mcpService: McpService): void {
+    this.mcpService = mcpService
   }
 
   /**
@@ -262,6 +273,7 @@ export class AgentService {
     const toolExecutorConfig: ToolExecutorConfig = {
       ptyService: this.ptyService,
       hostProfileService: this.hostProfileService,
+      mcpService: this.mcpService,
       addStep: (step) => this.addStep(agentId, step),
       waitForConfirmation: (toolCallId, toolName, toolArgs, riskLevel) => 
         this.waitForConfirmation(agentId, toolCallId, toolName, toolArgs, riskLevel),
@@ -282,7 +294,7 @@ export class AgentService {
         const response = await new Promise<ChatWithToolsResult>((resolve, reject) => {
           this.aiService.chatWithToolsStream(
             run.messages,
-            getAgentTools(),
+            getAgentTools(this.mcpService),
             // onChunk: 流式文本更新
             (chunk) => {
               streamContent += chunk

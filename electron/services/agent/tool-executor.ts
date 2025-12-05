@@ -6,6 +6,7 @@ import * as path from 'path'
 import stripAnsi from 'strip-ansi'
 import type { ToolCall } from '../ai.service'
 import type { PtyService } from '../pty.service'
+import type { McpService } from '../mcp.service'
 import type { 
   AgentConfig, 
   AgentStep, 
@@ -20,6 +21,7 @@ import { assessCommandRisk, analyzeCommand } from './risk-assessor'
 export interface ToolExecutorConfig {
   ptyService: PtyService
   hostProfileService?: HostProfileServiceInterface
+  mcpService?: McpService
   addStep: (step: Omit<AgentStep, 'id' | 'timestamp'>) => AgentStep
   waitForConfirmation: (
     toolCallId: string,
@@ -78,7 +80,78 @@ export async function executeTool(
       return rememberInfo(args, executor)
 
     default:
+      // 检查是否是 MCP 工具调用
+      if (name.startsWith('mcp_') && executor.mcpService) {
+        return executeMcpTool(name, args, toolCall.id, executor)
+      }
       return { success: false, output: '', error: `未知工具: ${name}` }
+  }
+}
+
+/**
+ * 执行 MCP 工具
+ */
+async function executeMcpTool(
+  fullName: string,
+  args: Record<string, unknown>,
+  toolCallId: string,
+  executor: ToolExecutorConfig
+): Promise<ToolResult> {
+  if (!executor.mcpService) {
+    return { success: false, output: '', error: 'MCP 服务未初始化' }
+  }
+
+  // 解析工具名称: mcp_{serverId}_{toolName}
+  const parsed = executor.mcpService.parseToolCallName(fullName)
+  if (!parsed) {
+    return { success: false, output: '', error: `无效的 MCP 工具名称: ${fullName}` }
+  }
+
+  const { serverId, toolName } = parsed
+
+  // 检查服务器是否已连接
+  if (!executor.mcpService.isConnected(serverId)) {
+    return { success: false, output: '', error: `MCP 服务器 ${serverId} 未连接` }
+  }
+
+  // 添加工具调用步骤
+  executor.addStep({
+    type: 'tool_call',
+    content: `[MCP] 调用工具: ${toolName}`,
+    toolName: fullName,
+    toolArgs: args,
+    riskLevel: 'moderate'
+  })
+
+  try {
+    const result = await executor.mcpService.callTool(serverId, toolName, args)
+
+    if (result.success) {
+      executor.addStep({
+        type: 'tool_result',
+        content: `[MCP] 工具执行成功`,
+        toolName: fullName,
+        toolResult: result.content?.substring(0, 500) + (result.content && result.content.length > 500 ? '...' : '')
+      })
+      return { success: true, output: result.content || '' }
+    } else {
+      executor.addStep({
+        type: 'tool_result',
+        content: `[MCP] 工具执行失败: ${result.error}`,
+        toolName: fullName,
+        toolResult: result.error
+      })
+      return { success: false, output: '', error: result.error }
+    }
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : 'MCP 工具执行失败'
+    executor.addStep({
+      type: 'tool_result',
+      content: `[MCP] 错误: ${errorMsg}`,
+      toolName: fullName,
+      toolResult: errorMsg
+    })
+    return { success: false, output: '', error: errorMsg }
   }
 }
 

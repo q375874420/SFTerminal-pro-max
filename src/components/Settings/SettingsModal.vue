@@ -4,16 +4,18 @@ import AiSettings from './AiSettings.vue'
 import ThemeSettings from './ThemeSettings.vue'
 import TerminalSettings from './TerminalSettings.vue'
 import DataSettings from './DataSettings.vue'
+import McpSettings from './McpSettings.vue'
 
 const emit = defineEmits<{
   close: []
 }>()
 
-type SettingsTab = 'ai' | 'theme' | 'terminal' | 'data' | 'about'
+type SettingsTab = 'ai' | 'mcp' | 'theme' | 'terminal' | 'data' | 'about'
 const activeTab = ref<SettingsTab>('ai')
 
 const tabs = [
   { id: 'ai' as const, label: 'AI 配置', icon: '🤖' },
+  { id: 'mcp' as const, label: 'MCP 服务器', icon: '🔌' },
   { id: 'theme' as const, label: '主题配色', icon: '🎨' },
   { id: 'terminal' as const, label: '终端设置', icon: '⚙️' },
   { id: 'data' as const, label: '数据管理', icon: '💾' },
@@ -48,6 +50,7 @@ const tabs = [
         </nav>
         <div class="settings-content">
           <AiSettings v-if="activeTab === 'ai'" />
+          <McpSettings v-else-if="activeTab === 'mcp'" />
           <ThemeSettings v-else-if="activeTab === 'theme'" />
           <TerminalSettings v-else-if="activeTab === 'terminal'" />
           <DataSettings v-else-if="activeTab === 'data'" />

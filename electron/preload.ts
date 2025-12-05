@@ -105,6 +105,63 @@ export interface TransferProgress {
   startTime: number
 }
 
+// MCP 相关类型
+export interface McpServerConfig {
+  id: string
+  name: string
+  enabled: boolean
+  transport: 'stdio' | 'sse'
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  cwd?: string
+  url?: string
+  headers?: Record<string, string>
+}
+
+export interface McpTool {
+  serverId: string
+  serverName: string
+  name: string
+  description: string
+  inputSchema: {
+    type: 'object'
+    properties: Record<string, unknown>
+    required?: string[]
+  }
+}
+
+export interface McpResource {
+  serverId: string
+  serverName: string
+  uri: string
+  name: string
+  description?: string
+  mimeType?: string
+}
+
+export interface McpPrompt {
+  serverId: string
+  serverName: string
+  name: string
+  description?: string
+  arguments?: Array<{
+    name: string
+    description?: string
+    required?: boolean
+  }>
+}
+
+export interface McpServerStatus {
+  id: string
+  name: string
+  connected: boolean
+  error?: string
+  toolCount: number
+  resourceCount: number
+  promptCount: number
+}
+
 // Agent 相关类型
 export type RiskLevel = 'safe' | 'moderate' | 'dangerous' | 'blocked'
 
@@ -791,6 +848,150 @@ const electronAPI = {
       ipcRenderer.on('sftp:transfer-error', handler)
       return () => {
         ipcRenderer.removeListener('sftp:transfer-error', handler)
+      }
+    }
+  },
+
+  // MCP 操作
+  mcp: {
+    // 获取服务器配置列表
+    getServers: () =>
+      ipcRenderer.invoke('mcp:getServers') as Promise<McpServerConfig[]>,
+
+    // 保存服务器配置列表
+    setServers: (servers: McpServerConfig[]) =>
+      ipcRenderer.invoke('mcp:setServers', servers),
+
+    // 添加服务器
+    addServer: (server: McpServerConfig) =>
+      ipcRenderer.invoke('mcp:addServer', server),
+
+    // 更新服务器
+    updateServer: (server: McpServerConfig) =>
+      ipcRenderer.invoke('mcp:updateServer', server),
+
+    // 删除服务器
+    deleteServer: (id: string) =>
+      ipcRenderer.invoke('mcp:deleteServer', id),
+
+    // 连接到服务器
+    connect: (config: McpServerConfig) =>
+      ipcRenderer.invoke('mcp:connect', config) as Promise<{
+        success: boolean
+        error?: string
+      }>,
+
+    // 断开连接
+    disconnect: (serverId: string) =>
+      ipcRenderer.invoke('mcp:disconnect', serverId),
+
+    // 测试连接
+    testConnection: (config: McpServerConfig) =>
+      ipcRenderer.invoke('mcp:testConnection', config) as Promise<{
+        success: boolean
+        toolCount?: number
+        resourceCount?: number
+        promptCount?: number
+        error?: string
+      }>,
+
+    // 获取服务器状态列表
+    getServerStatuses: () =>
+      ipcRenderer.invoke('mcp:getServerStatuses') as Promise<McpServerStatus[]>,
+
+    // 获取所有工具
+    getAllTools: () =>
+      ipcRenderer.invoke('mcp:getAllTools') as Promise<McpTool[]>,
+
+    // 获取所有资源
+    getAllResources: () =>
+      ipcRenderer.invoke('mcp:getAllResources') as Promise<McpResource[]>,
+
+    // 获取所有提示模板
+    getAllPrompts: () =>
+      ipcRenderer.invoke('mcp:getAllPrompts') as Promise<McpPrompt[]>,
+
+    // 调用工具
+    callTool: (serverId: string, toolName: string, args: Record<string, unknown>) =>
+      ipcRenderer.invoke('mcp:callTool', serverId, toolName, args) as Promise<{
+        success: boolean
+        content?: string
+        error?: string
+      }>,
+
+    // 读取资源
+    readResource: (serverId: string, uri: string) =>
+      ipcRenderer.invoke('mcp:readResource', serverId, uri) as Promise<{
+        success: boolean
+        content?: string
+        mimeType?: string
+        error?: string
+      }>,
+
+    // 获取提示模板
+    getPrompt: (serverId: string, promptName: string, args?: Record<string, string>) =>
+      ipcRenderer.invoke('mcp:getPrompt', serverId, promptName, args) as Promise<{
+        success: boolean
+        messages?: Array<{ role: string; content: string }>
+        error?: string
+      }>,
+
+    // 刷新服务器
+    refreshServer: (serverId: string) =>
+      ipcRenderer.invoke('mcp:refreshServer', serverId) as Promise<{
+        success: boolean
+        error?: string
+      }>,
+
+    // 检查是否已连接
+    isConnected: (serverId: string) =>
+      ipcRenderer.invoke('mcp:isConnected', serverId) as Promise<boolean>,
+
+    // 连接所有启用的服务器
+    connectEnabledServers: () =>
+      ipcRenderer.invoke('mcp:connectEnabledServers') as Promise<Array<{
+        id: string
+        success: boolean
+        error?: string
+      }>>,
+
+    // 断开所有连接
+    disconnectAll: () =>
+      ipcRenderer.invoke('mcp:disconnectAll'),
+
+    // 监听服务器连接事件
+    onConnected: (callback: (serverId: string) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, serverId: string) => callback(serverId)
+      ipcRenderer.on('mcp:connected', handler)
+      return () => {
+        ipcRenderer.removeListener('mcp:connected', handler)
+      }
+    },
+
+    // 监听服务器断开事件
+    onDisconnected: (callback: (serverId: string) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, serverId: string) => callback(serverId)
+      ipcRenderer.on('mcp:disconnected', handler)
+      return () => {
+        ipcRenderer.removeListener('mcp:disconnected', handler)
+      }
+    },
+
+    // 监听服务器错误事件
+    onError: (callback: (data: { serverId: string; error?: string }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { serverId: string; error?: string }) => callback(data)
+      ipcRenderer.on('mcp:error', handler)
+      return () => {
+        ipcRenderer.removeListener('mcp:error', handler)
+      }
+    },
+
+    // 监听服务器刷新事件
+    onRefreshed: (callback: (serverId: string) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, serverId: string) => callback(serverId)
+      ipcRenderer.on('mcp:refreshed', handler)
+      return () => {
+        ipcRenderer.removeListener('mcp:refreshed', handler)
       }
     }
   }

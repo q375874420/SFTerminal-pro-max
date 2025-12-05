@@ -31,6 +31,22 @@ export interface TerminalSettings {
   scrollback: number
 }
 
+// MCP 服务器配置
+export interface McpServerConfig {
+  id: string
+  name: string
+  enabled: boolean
+  transport: 'stdio' | 'sse'
+  // stdio 模式
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  cwd?: string
+  // sse 模式
+  url?: string
+  headers?: Record<string, string>
+}
+
 interface StoreSchema {
   aiProfiles: AiProfile[]
   activeAiProfile: string
@@ -41,6 +57,7 @@ interface StoreSchema {
     enabled: boolean
     url: string
   }
+  mcpServers: McpServerConfig[]
 }
 
 const defaultConfig: StoreSchema = {
@@ -58,7 +75,8 @@ const defaultConfig: StoreSchema = {
   proxySettings: {
     enabled: false,
     url: ''
-  }
+  },
+  mcpServers: []
 }
 
 export class ConfigService {
@@ -258,6 +276,59 @@ export class ConfigService {
    */
   setProxySettings(settings: { enabled: boolean; url: string }): void {
     this.store.set('proxySettings', settings)
+  }
+
+  // ==================== MCP 服务器配置 ====================
+
+  /**
+   * 获取所有 MCP 服务器配置
+   */
+  getMcpServers(): McpServerConfig[] {
+    return this.store.get('mcpServers') || []
+  }
+
+  /**
+   * 设置 MCP 服务器配置
+   */
+  setMcpServers(servers: McpServerConfig[]): void {
+    this.store.set('mcpServers', servers)
+  }
+
+  /**
+   * 添加 MCP 服务器
+   */
+  addMcpServer(server: McpServerConfig): void {
+    const servers = this.getMcpServers()
+    servers.push(server)
+    this.setMcpServers(servers)
+  }
+
+  /**
+   * 更新 MCP 服务器
+   */
+  updateMcpServer(server: McpServerConfig): void {
+    const servers = this.getMcpServers()
+    const index = servers.findIndex(s => s.id === server.id)
+    if (index !== -1) {
+      servers[index] = server
+      this.setMcpServers(servers)
+    }
+  }
+
+  /**
+   * 删除 MCP 服务器
+   */
+  deleteMcpServer(id: string): void {
+    const servers = this.getMcpServers()
+    const filtered = servers.filter(s => s.id !== id)
+    this.setMcpServers(filtered)
+  }
+
+  /**
+   * 获取启用的 MCP 服务器
+   */
+  getEnabledMcpServers(): McpServerConfig[] {
+    return this.getMcpServers().filter(s => s.enabled)
   }
 }
 

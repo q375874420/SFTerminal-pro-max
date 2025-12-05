@@ -44,6 +44,63 @@ interface HostProfile {
   lastUpdated: number
 }
 
+// MCP 相关类型
+interface McpServerConfig {
+  id: string
+  name: string
+  enabled: boolean
+  transport: 'stdio' | 'sse'
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  cwd?: string
+  url?: string
+  headers?: Record<string, string>
+}
+
+interface McpTool {
+  serverId: string
+  serverName: string
+  name: string
+  description: string
+  inputSchema: {
+    type: 'object'
+    properties: Record<string, unknown>
+    required?: string[]
+  }
+}
+
+interface McpResource {
+  serverId: string
+  serverName: string
+  uri: string
+  name: string
+  description?: string
+  mimeType?: string
+}
+
+interface McpPrompt {
+  serverId: string
+  serverName: string
+  name: string
+  description?: string
+  arguments?: Array<{
+    name: string
+    description?: string
+    required?: boolean
+  }>
+}
+
+interface McpServerStatus {
+  id: string
+  name: string
+  connected: boolean
+  error?: string
+  toolCount: number
+  resourceCount: number
+  promptCount: number
+}
+
 // Electron API 类型
 interface Window {
   electronAPI: {
@@ -588,6 +645,61 @@ interface Window {
         description: string
         available: boolean
       }>>
+    }
+    // MCP 操作
+    mcp: {
+      getServers: () => Promise<McpServerConfig[]>
+      setServers: (servers: McpServerConfig[]) => Promise<void>
+      addServer: (server: McpServerConfig) => Promise<void>
+      updateServer: (server: McpServerConfig) => Promise<void>
+      deleteServer: (id: string) => Promise<void>
+      connect: (config: McpServerConfig) => Promise<{
+        success: boolean
+        error?: string
+      }>
+      disconnect: (serverId: string) => Promise<void>
+      testConnection: (config: McpServerConfig) => Promise<{
+        success: boolean
+        toolCount?: number
+        resourceCount?: number
+        promptCount?: number
+        error?: string
+      }>
+      getServerStatuses: () => Promise<McpServerStatus[]>
+      getAllTools: () => Promise<McpTool[]>
+      getAllResources: () => Promise<McpResource[]>
+      getAllPrompts: () => Promise<McpPrompt[]>
+      callTool: (serverId: string, toolName: string, args: Record<string, unknown>) => Promise<{
+        success: boolean
+        content?: string
+        error?: string
+      }>
+      readResource: (serverId: string, uri: string) => Promise<{
+        success: boolean
+        content?: string
+        mimeType?: string
+        error?: string
+      }>
+      getPrompt: (serverId: string, promptName: string, args?: Record<string, string>) => Promise<{
+        success: boolean
+        messages?: Array<{ role: string; content: string }>
+        error?: string
+      }>
+      refreshServer: (serverId: string) => Promise<{
+        success: boolean
+        error?: string
+      }>
+      isConnected: (serverId: string) => Promise<boolean>
+      connectEnabledServers: () => Promise<Array<{
+        id: string
+        success: boolean
+        error?: string
+      }>>
+      disconnectAll: () => Promise<void>
+      onConnected: (callback: (serverId: string) => void) => () => void
+      onDisconnected: (callback: (serverId: string) => void) => () => void
+      onError: (callback: (data: { serverId: string; error?: string }) => void) => () => void
+      onRefreshed: (callback: (serverId: string) => void) => () => void
     }
   }
 }
