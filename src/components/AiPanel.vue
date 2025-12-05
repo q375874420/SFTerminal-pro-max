@@ -631,8 +631,11 @@ const getDocumentContext = async (): Promise<string> => {
   const validDocs = uploadedDocs.value.filter(d => !d.error && d.content)
   if (validDocs.length === 0) return ''
   
+  // 将 Vue Proxy 对象转换为普通对象，避免 IPC 序列化错误
+  const plainDocs = JSON.parse(JSON.stringify(validDocs))
+  
   const documentAPI = (window.electronAPI as { document: typeof window.electronAPI.document }).document
-  return await documentAPI.formatAsContext(validDocs)
+  return await documentAPI.formatAsContext(plainDocs)
 }
 
 // 停止生成
