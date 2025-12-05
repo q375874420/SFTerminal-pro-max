@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
+import stripAnsiLib from 'strip-ansi'
 
 export type ShellType = 'powershell' | 'cmd' | 'bash' | 'zsh' | 'sh' | 'unknown'
 export type OSType = 'windows' | 'linux' | 'macos' | 'unknown'
@@ -295,12 +296,31 @@ export const useTerminalStore = defineStore('terminal', () => {
   }
 
   /**
+   * 去除 ANSI 转义序列和控制字符
+   * 使用 strip-ansi 库 + 额外处理残留序列
+   */
+  function stripAnsi(str: string): string {
+    return stripAnsiLib(str)
+      // 移除残留的 CSI 序列（ESC 字符可能已被移除的情况）
+      // 匹配 [数字;数字...字母] 格式，如 [1m, [0m, [27m, [?2004h, [K 等
+      .replace(/\[[\d;?]*[a-zA-Z]/g, '')
+      // 移除 zsh 反显的 % 符号 (通常出现在命令结束后)
+      .replace(/^%\s*$/gm, '')
+      // 控制字符（保留换行、回车和制表符）
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
+      // 清理多余的空行
+      .replace(/\n{3,}/g, '\n\n')
+  }
+
+  /**
    * 获取终端最近的输出
    */
   function getRecentOutput(tabId: string, lines: number = 20): string {
     const tab = tabs.value.find(t => t.id === tabId)
     if (!tab?.outputBuffer) return ''
-    return tab.outputBuffer.slice(-lines).join('\n')
+    // 清理 ANSI 转义序列后返回
+    const rawOutput = tab.outputBuffer.slice(-lines).join('\n')
+    return stripAnsi(rawOutput)
   }
 
   /**
@@ -722,10 +742,15 @@ export const useTerminalStore = defineStore('terminal', () => {
     const tab = tabs.value.find(t => t.id === tabId)
     if (!tab) return null
 
+    // 清理终端输出中的 ANSI 转义序列
+    const cleanOutput = (tab.outputBuffer || [])
+      .slice(-50)
+      .map(line => stripAnsi(line))
+
     // 使用 JSON.parse(JSON.stringify()) 确保返回纯对象，移除 Proxy
     return JSON.parse(JSON.stringify({
       ptyId: tab.ptyId || '',
-      terminalOutput: (tab.outputBuffer || []).slice(-50), // 只取最近50行
+      terminalOutput: cleanOutput, // 只取最近50行，已清理 ANSI
       systemInfo: {
         os: tab.systemInfo?.os || 'unknown',
         shell: tab.systemInfo?.shell || 'unknown'
