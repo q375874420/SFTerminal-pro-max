@@ -20,6 +20,7 @@ const emit = defineEmits<{
 }>()
 
 const showNewSession = ref(false)
+const showNewMenu = ref(false)
 const showImportMenu = ref(false)
 const nameInputRef = ref<HTMLInputElement | null>(null)
 
@@ -36,11 +37,14 @@ const handleKeydown = (e: KeyboardEvent) => {
   }
 }
 
-// 点击外部关闭导入菜单
+// 点击外部关闭菜单
 const handleClickOutside = (e: MouseEvent) => {
   const target = e.target as HTMLElement
   if (!target.closest('.import-dropdown')) {
     showImportMenu.value = false
+  }
+  if (!target.closest('.new-dropdown')) {
+    showNewMenu.value = false
   }
 }
 
@@ -53,12 +57,22 @@ watch(showNewSession, (isOpen) => {
   }
 })
 
+// 监听新建菜单状态
+watch(showNewMenu, (isOpen) => {
+  if (isOpen) {
+    document.addEventListener('click', handleClickOutside)
+    document.addEventListener('keydown', handleKeydown)
+  } else if (!showImportMenu.value) {
+    document.removeEventListener('click', handleClickOutside)
+  }
+})
+
 // 监听导入菜单状态
 watch(showImportMenu, (isOpen) => {
   if (isOpen) {
     document.addEventListener('click', handleClickOutside)
     document.addEventListener('keydown', handleKeydown)
-  } else {
+  } else if (!showNewMenu.value) {
     document.removeEventListener('click', handleClickOutside)
   }
 })
@@ -98,6 +112,11 @@ const filteredSessions = computed(() => {
 // 按组分类的会话
 const groupedSessions = computed(() => {
   const groups: Record<string, { group: SessionGroup | null; sessions: SshSession[] }> = {}
+  
+  // 先添加所有已定义的分组（即使没有会话）
+  configStore.sessionGroups.forEach(group => {
+    groups[group.name] = { group, sessions: [] }
+  })
   
   filteredSessions.value.forEach(session => {
     // 优先使用 groupId，否则使用旧的 group 字段
@@ -274,6 +293,16 @@ const handleImportResult = async (importResult: { success: boolean; sessions: an
 
 // ==================== 分组管理 ====================
 
+// 新建分组
+const openNewGroup = () => {
+  editingGroup.value = null
+  groupFormData.value = {
+    name: '',
+    jumpHost: undefined
+  }
+  showGroupEditor.value = true
+}
+
 // 打开分组编辑弹窗
 const openGroupEditor = (groupName: string) => {
   const groupData = groupedSessions.value[groupName]
@@ -344,6 +373,17 @@ const saveGroup = async () => {
     await configStore.updateSessionGroup(groupData)
   } else {
     await configStore.addSessionGroup(groupData)
+    
+    // 更新使用旧 group 字段的会话，让它们使用新的 groupId
+    const sessionsToUpdate = configStore.sshSessions.filter(
+      s => s.group === groupFormData.value.name && !s.groupId
+    )
+    for (const session of sessionsToUpdate) {
+      await configStore.updateSshSession({
+        ...session,
+        groupId: groupData.id
+      })
+    }
   }
 
   showGroupEditor.value = false
@@ -371,13 +411,33 @@ const deleteGroup = async (groupName: string) => {
         class="input search-input"
         placeholder="搜索主机..."
       />
-      <button class="btn btn-primary btn-sm" @click="openNewSession">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="12" y1="5" x2="12" y2="19"/>
-          <line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-        新建
-      </button>
+      <div class="new-dropdown">
+        <button class="btn btn-primary btn-sm" @click="showNewMenu = !showNewMenu">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          新建
+        </button>
+        <div v-if="showNewMenu" class="new-menu" @click.stop>
+          <button class="new-menu-item" @click="openNewSession(); showNewMenu = false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+              <line x1="8" y1="21" x2="16" y2="21"/>
+              <line x1="12" y1="17" x2="12" y2="21"/>
+            </svg>
+            新建会话
+          </button>
+          <button class="new-menu-item" @click="openNewGroup(); showNewMenu = false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              <line x1="12" y1="11" x2="12" y2="17"/>
+              <line x1="9" y1="14" x2="15" y2="14"/>
+            </svg>
+            新建分组
+          </button>
+        </div>
+      </div>
       <div class="import-dropdown">
         <button class="btn btn-sm" @click="showImportMenu = !showImportMenu">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -424,7 +484,7 @@ const deleteGroup = async (groupName: string) => {
           :key="groupName"
           class="session-group"
         >
-          <div class="group-header" v-if="groupData.sessions.length > 0">
+          <div class="group-header" v-if="groupData.sessions.length > 0 || groupData.group">
             <div class="group-header-left">
               <span>{{ groupName }}</span>
               <span v-if="groupData.group?.jumpHost" class="jump-host-badge" title="跳板机">
@@ -576,7 +636,7 @@ const deleteGroup = async (groupName: string) => {
     <div v-if="showGroupEditor" class="modal-overlay" @click.self="showGroupEditor = false">
       <div class="modal session-modal">
         <div class="modal-header">
-          <h3>{{ editingGroup ? '编辑分组' : '新建分组' }}</h3>
+          <h3>{{ editingGroup ? '编辑分组' : (groupFormData.name ? '配置分组' : '新建分组') }}</h3>
           <button class="btn-icon" @click="showGroupEditor = false" title="关闭">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18"/>
@@ -677,6 +737,48 @@ const deleteGroup = async (groupName: string) => {
   height: 32px;
   min-width: fit-content;
   white-space: nowrap;
+}
+
+/* 新建下拉菜单 */
+.new-dropdown {
+  position: relative;
+}
+
+.new-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 140px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  overflow: hidden;
+}
+
+.new-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.new-menu-item:hover {
+  background: var(--bg-surface);
+}
+
+.new-menu-item svg {
+  color: var(--text-muted);
 }
 
 /* 导入下拉菜单 */
