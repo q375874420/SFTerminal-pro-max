@@ -32,6 +32,14 @@ export interface TerminalSettings {
   scrollback: number
 }
 
+// Agent MBTI 类型
+export type AgentMbtiType = 
+  | 'INTJ' | 'INTP' | 'ENTJ' | 'ENTP'
+  | 'INFJ' | 'INFP' | 'ENFJ' | 'ENFP'
+  | 'ISTJ' | 'ISFJ' | 'ESTJ' | 'ESFJ'
+  | 'ISTP' | 'ISFP' | 'ESTP' | 'ESFP'
+  | null
+
 export const useConfigStore = defineStore('config', () => {
   // AI 配置
   const aiProfiles = ref<AiProfile[]>([])
@@ -51,6 +59,9 @@ export const useConfigStore = defineStore('config', () => {
     cursorStyle: 'block',
     scrollback: 10000
   })
+
+  // Agent MBTI 设置
+  const agentMbti = ref<AgentMbtiType>(null)
 
   // 计算属性
   const activeAiProfile = computed(() =>
@@ -78,6 +89,10 @@ export const useConfigStore = defineStore('config', () => {
       // 加载主题
       const theme = await window.electronAPI.config.getTheme()
       currentTheme.value = theme || 'one-dark'
+
+      // 加载 Agent MBTI
+      const mbti = await window.electronAPI.config.getAgentMbti()
+      agentMbti.value = mbti as AgentMbtiType
     } catch (error) {
       console.error('Failed to load config:', error)
     }
@@ -157,6 +172,13 @@ export const useConfigStore = defineStore('config', () => {
     await window.electronAPI.config.setTheme(theme)
   }
 
+  // ==================== Agent MBTI ====================
+
+  async function setAgentMbti(mbti: AgentMbtiType): Promise<void> {
+    agentMbti.value = mbti
+    await window.electronAPI.config.setAgentMbti(mbti)
+  }
+
   return {
     // 状态
     aiProfiles,
@@ -166,6 +188,7 @@ export const useConfigStore = defineStore('config', () => {
     sshSessions,
     currentTheme,
     terminalSettings,
+    agentMbti,
 
     // 方法
     loadConfig,
@@ -176,7 +199,8 @@ export const useConfigStore = defineStore('config', () => {
     addSshSession,
     updateSshSession,
     deleteSshSession,
-    setTheme
+    setTheme,
+    setAgentMbti
   }
 })
 

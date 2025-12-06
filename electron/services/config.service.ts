@@ -47,6 +47,14 @@ export interface McpServerConfig {
   headers?: Record<string, string>
 }
 
+// Agent MBTI 类型
+export type AgentMbtiType = 
+  | 'INTJ' | 'INTP' | 'ENTJ' | 'ENTP'
+  | 'INFJ' | 'INFP' | 'ENFJ' | 'ENFP'
+  | 'ISTJ' | 'ISFJ' | 'ESTJ' | 'ESFJ'
+  | 'ISTP' | 'ISFP' | 'ESTP' | 'ESFP'
+  | null
+
 interface StoreSchema {
   aiProfiles: AiProfile[]
   activeAiProfile: string
@@ -58,6 +66,7 @@ interface StoreSchema {
     url: string
   }
   mcpServers: McpServerConfig[]
+  agentMbti: AgentMbtiType
 }
 
 const defaultConfig: StoreSchema = {
@@ -76,7 +85,8 @@ const defaultConfig: StoreSchema = {
     enabled: false,
     url: ''
   },
-  mcpServers: []
+  mcpServers: [],
+  agentMbti: null
 }
 
 export class ConfigService {
@@ -329,6 +339,22 @@ export class ConfigService {
    */
   getEnabledMcpServers(): McpServerConfig[] {
     return this.getMcpServers().filter(s => s.enabled)
+  }
+
+  // ==================== Agent MBTI 设置 ====================
+
+  /**
+   * 获取 Agent MBTI 类型
+   */
+  getAgentMbti(): AgentMbtiType {
+    return this.store.get('agentMbti') || null
+  }
+
+  /**
+   * 设置 Agent MBTI 类型
+   */
+  setAgentMbti(mbti: AgentMbtiType): void {
+    this.store.set('agentMbti', mbti)
   }
 }
 

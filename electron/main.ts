@@ -43,7 +43,7 @@ const configService = new ConfigService()
 const xshellImportService = new XshellImportService()
 const hostProfileService = new HostProfileService()
 const mcpService = new McpService()
-const agentService = new AgentService(aiService, ptyService, hostProfileService, mcpService)
+const agentService = new AgentService(aiService, ptyService, hostProfileService, mcpService, configService)
 const historyService = new HistoryService()
 const documentParserService = getDocumentParserService()
 const sftpService = new SftpService()
@@ -279,6 +279,15 @@ ipcMain.handle('config:getTheme', async () => {
 
 ipcMain.handle('config:setTheme', async (_event, theme: string) => {
   configService.setTheme(theme)
+})
+
+// Agent MBTI 配置
+ipcMain.handle('config:getAgentMbti', async () => {
+  return configService.getAgentMbti()
+})
+
+ipcMain.handle('config:setAgentMbti', async (_event, mbti: string | null) => {
+  configService.setAgentMbti(mbti as import('./services/config.service').AgentMbtiType)
 })
 
 // Xshell 导入相关

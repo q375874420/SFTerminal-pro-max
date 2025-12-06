@@ -6,6 +6,7 @@ import type { AiService, AiMessage, ToolCall, ChatWithToolsResult } from '../ai.
 import { CommandExecutorService } from '../command-executor.service'
 import type { PtyService } from '../pty.service'
 import type { McpService } from '../mcp.service'
+import type { ConfigService } from '../config.service'
 
 // 导入子模块
 import type {
@@ -44,6 +45,7 @@ export class AgentService {
   private ptyService: PtyService
   private hostProfileService?: HostProfileServiceInterface
   private mcpService?: McpService
+  private configService?: ConfigService
   private runs: Map<string, AgentRun> = new Map()
 
   // 事件回调
@@ -57,12 +59,14 @@ export class AgentService {
     aiService: AiService, 
     ptyService: PtyService,
     hostProfileService?: HostProfileServiceInterface,
-    mcpService?: McpService
+    mcpService?: McpService,
+    configService?: ConfigService
   ) {
     this.aiService = aiService
     this.ptyService = ptyService
     this.hostProfileService = hostProfileService
     this.mcpService = mcpService
+    this.configService = configService
     this.commandExecutor = new CommandExecutorService()
   }
 
@@ -239,8 +243,9 @@ export class AgentService {
     }
     this.runs.set(agentId, run)
 
-    // 构建系统提示
-    const systemPrompt = buildSystemPrompt(context, this.hostProfileService)
+    // 构建系统提示（包含 MBTI 风格）
+    const mbtiType = this.configService?.getAgentMbti() ?? null
+    const systemPrompt = buildSystemPrompt(context, this.hostProfileService, mbtiType)
     run.messages.push({ role: 'system', content: systemPrompt })
 
     // 添加历史对话（保持 Agent 记忆）

@@ -304,7 +304,11 @@ const electronAPI = {
 
     // 主题
     getTheme: () => ipcRenderer.invoke('config:getTheme'),
-    setTheme: (theme: string) => ipcRenderer.invoke('config:setTheme', theme)
+    setTheme: (theme: string) => ipcRenderer.invoke('config:setTheme', theme),
+
+    // Agent MBTI
+    getAgentMbti: () => ipcRenderer.invoke('config:getAgentMbti') as Promise<string | null>,
+    setAgentMbti: (mbti: string | null) => ipcRenderer.invoke('config:setAgentMbti', mbti)
   },
 
   // Xshell 导入操作
