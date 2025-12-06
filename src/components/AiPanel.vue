@@ -746,30 +746,28 @@ onMounted(() => {
               <rect x="6" y="6" width="12" height="12" rx="2"/>
             </svg>
           </button>
-          <!-- Agent 运行中：停止按钮 + 补充消息发送按钮 -->
-          <template v-else-if="isAgentRunning">
-            <button
-              class="send-btn send-btn-supplement"
-              :disabled="!inputText.trim()"
-              title="发送补充信息 (Enter)"
-              @click="handleSend"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/>
-                <line x1="12" y1="8" x2="12" y2="16"/>
-                <line x1="8" y1="12" x2="16" y2="12"/>
-              </svg>
-            </button>
-            <button
-              class="btn btn-danger stop-btn"
-              @click="abortAgent"
-              title="停止 Agent"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="6" y="6" width="12" height="12" rx="2"/>
-              </svg>
-            </button>
-          </template>
+          <!-- Agent 运行中：有输入显示补充按钮，无输入显示停止按钮 -->
+          <button
+            v-else-if="isAgentRunning && inputText.trim()"
+            class="send-btn send-btn-supplement"
+            title="发送补充信息 (Enter)"
+            @click="handleSend"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="22" y1="2" x2="11" y2="13"/>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </button>
+          <button
+            v-else-if="isAgentRunning"
+            class="btn btn-danger stop-btn"
+            @click="abortAgent"
+            title="停止 Agent"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="2"/>
+            </svg>
+          </button>
           <!-- 发送按钮 -->
           <button
             v-else

@@ -221,18 +221,8 @@ export function useAgentMode(
     // 如果 Agent 正在运行，发送补充消息而不是启动新任务
     if (isAgentRunning.value && agentState.value?.agentId) {
       inputText.value = ''
-      
-      // 添加补充消息到步骤显示
-      terminalStore.addAgentStep(tabId, {
-        id: `supplement_${Date.now()}`,
-        type: 'user_supplement',
-        content: message,
-        timestamp: Date.now()
-      })
-      
-      // 发送到后端
+      // 发送到后端，步骤会在下一轮 AI 请求时由后端添加
       await window.electronAPI.agent.addMessage(agentState.value.agentId, message)
-      await scrollToBottomIfNeeded()
       return
     }
 
