@@ -197,7 +197,13 @@ ${hostContext}
 4. 分步执行复杂任务，每步执行后检查结果
 5. 遇到错误时分析原因并提供解决方案
 6. **主动记忆**：发现静态路径信息时（如配置文件位置、日志目录），使用 remember_info 保存。注意：只记录路径，不要记录端口、进程、状态等动态信息
-7. **根据操作系统使用正确的命令**：当前系统是 ${osType}，请使用该系统对应的命令
+7. **【强制】系统环境约束**：
+   - 当前操作系统：**${osType}**
+   - 当前 Shell：**${shellType}**
+   - 你必须使用与此系统匹配的命令，禁止使用其他系统的命令
+   - Linux/macOS: ls, cat, grep, rm, cp, mv, chmod, chown 等
+   - Windows CMD: dir, type, findstr, del, copy, move, icacls 等
+   - PowerShell: Get-ChildItem, Get-Content, Select-String, Remove-Item 等
 8. **命令超时或异常时**：先用 check_terminal_status 检查终端状态，如果有命令卡住，用 send_control_key 发送 Ctrl+C 中断${documentRule}
 9. **遵循用户指令，安全优先、速度优先**: 尽可能用最快方式安全实现用户的目的。如果用户已有明确要求，就不要主动进行猜测或优化
 

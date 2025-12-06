@@ -127,16 +127,19 @@ export function useAiChat(
         unknown: '未知 Shell'
       }
       
-      systemContext = `当前用户使用的是 ${osNames[info.os]} 系统，Shell 类型是 ${shellNames[info.shell]}。`
-      if (info.description) {
-        systemContext += ` (${info.description})`
-      }
-      systemContext += ' 请根据这个环境给出准确的命令和建议。'
+      systemContext = `
+
+【重要：系统环境约束】
+- 操作系统：${osNames[info.os]}
+- Shell 类型：${shellNames[info.shell]}
+你必须严格按照上述环境生成命令。禁止使用其他系统的命令语法。
+例如：Linux/macOS 使用 ls、cat、grep；Windows CMD 使用 dir、type、findstr；PowerShell 使用 Get-ChildItem、Get-Content、Select-String。
+`
     } else {
       systemContext = `当前操作系统平台: ${navigator.platform}。`
     }
     
-    return `你是旗鱼终端的 AI 助手，专门帮助运维人员解决命令行相关问题。${systemContext} 请用中文回答，回答要简洁实用。`
+    return `你是旗鱼终端的 AI 助手，专门帮助运维人员解决命令行相关问题。${systemContext}请用中文回答，回答要简洁实用。`
   }
 
   // 发送消息
@@ -274,7 +277,9 @@ export function useAiChat(
 
     let firstChunk = true
     const info = currentSystemInfo.value
-    const osContext = info ? `当前用户使用的是 ${info.os === 'windows' ? 'Windows' : info.os === 'macos' ? 'macOS' : 'Linux'} 系统，Shell 类型是 ${info.shell}。` : ''
+    const osContext = info 
+      ? `【系统环境】操作系统: ${info.os === 'windows' ? 'Windows' : info.os === 'macos' ? 'macOS' : 'Linux'}，Shell: ${info.shell}。请基于此环境解释命令。` 
+      : ''
     
     window.electronAPI.ai.chatStream(
       [
@@ -337,7 +342,7 @@ export function useAiChat(
     if (info) {
       const osNames: Record<string, string> = { windows: 'Windows', linux: 'Linux', macos: 'macOS', unknown: '未知' }
       const shellNames: Record<string, string> = { powershell: 'PowerShell', cmd: 'CMD', bash: 'Bash', zsh: 'Zsh', sh: 'Shell', unknown: '未知' }
-      systemContext = `当前操作系统是 ${osNames[info.os]}，Shell 类型是 ${shellNames[info.shell]}。请生成适合该环境的命令。`
+      systemContext = `【重要：系统环境约束】操作系统: ${osNames[info.os]}，Shell: ${shellNames[info.shell]}。你必须生成适合该环境的命令，禁止使用其他系统的命令。`
     } else {
       systemContext = `当前操作系统平台: ${navigator.platform}。`
     }
@@ -417,7 +422,9 @@ export function useAiChat(
     await scrollToBottom()
 
     const info = currentSystemInfo.value
-    const osContext = info ? `当前用户使用的是 ${info.os === 'windows' ? 'Windows' : info.os === 'macos' ? 'macOS' : 'Linux'} 系统，Shell 类型是 ${info.shell}。` : ''
+    const osContext = info 
+      ? `【系统环境】操作系统: ${info.os === 'windows' ? 'Windows' : info.os === 'macos' ? 'macOS' : 'Linux'}，Shell: ${info.shell}。请基于此环境分析错误和提供解决方案。` 
+      : ''
 
     let firstChunk = true
     window.electronAPI.ai.chatStream(
@@ -480,7 +487,9 @@ export function useAiChat(
     await scrollToBottom()
 
     const info = currentSystemInfo.value
-    const osContext = info ? `当前用户使用的是 ${info.os === 'windows' ? 'Windows' : info.os === 'macos' ? 'macOS' : 'Linux'} 系统，Shell 类型是 ${info.shell}。` : ''
+    const osContext = info 
+      ? `【系统环境】操作系统: ${info.os === 'windows' ? 'Windows' : info.os === 'macos' ? 'macOS' : 'Linux'}，Shell: ${info.shell}。请基于此环境分析内容。` 
+      : ''
 
     let firstChunk = true
     window.electronAPI.ai.chatStream(
@@ -539,7 +548,9 @@ export function useAiChat(
     await scrollToBottom()
 
     const info = currentSystemInfo.value
-    const osContext = info ? `当前用户使用的是 ${info.os === 'windows' ? 'Windows' : info.os === 'macos' ? 'macOS' : 'Linux'} 系统，Shell 类型是 ${info.shell}。` : ''
+    const osContext = info 
+      ? `【系统环境】操作系统: ${info.os === 'windows' ? 'Windows' : info.os === 'macos' ? 'macOS' : 'Linux'}，Shell: ${info.shell}。请基于此环境分析内容。` 
+      : ''
 
     let firstChunk = true
     window.electronAPI.ai.chatStream(
