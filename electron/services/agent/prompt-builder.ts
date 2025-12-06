@@ -201,9 +201,6 @@ ${hostContext}
    - 当前操作系统：**${osType}**
    - 当前 Shell：**${shellType}**
    - 你必须使用与此系统匹配的命令，禁止使用其他系统的命令
-   - Linux/macOS: ls, cat, grep, rm, cp, mv, chmod, chown 等
-   - Windows CMD: dir, type, findstr, del, copy, move, icacls 等
-   - PowerShell: Get-ChildItem, Get-Content, Select-String, Remove-Item 等
 8. **命令超时或异常时**：先用 check_terminal_status 检查终端状态，如果有命令卡住，用 send_control_key 发送 Ctrl+C 中断${documentRule}
 9. **遵循用户指令，安全优先、速度优先**: 尽可能用最快方式安全实现用户的目的。如果用户已有明确要求，就不要主动进行猜测或优化
 
