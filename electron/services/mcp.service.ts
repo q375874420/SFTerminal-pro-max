@@ -9,6 +9,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import type { ToolDefinition } from './ai.service'
 import { spawn, ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
+import { app } from 'electron'
 
 // MCP 服务器配置
 export interface McpServerConfig {
@@ -139,8 +140,8 @@ export class McpService extends EventEmitter {
 
       // 创建 MCP 客户端
       const client = new Client({
-        name: 'qiyu-terminal',
-        version: '3.0.0'
+        name: app.getName(),
+        version: app.getVersion()
       }, {
         capabilities: {
           tools: {},
