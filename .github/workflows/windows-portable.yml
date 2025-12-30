@@ -11,10 +11,10 @@ on:
     tags:
       - 'v*'
 
-actions:
-  run-name: Build Windows Portable ${{ github.event.inputs.version || github.ref_name }}
+run-name: Build Windows Portable ${{ github.event.inputs.version || github.ref_name }}
 
 concurrency:
+
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -41,6 +41,7 @@ jobs:
         run: |
           npx electron-builder --win nsis portable -c electron-builder-win-optimized.yml
         env:
+          # 可选：自定义版本号（用于手动触发时覆盖）
           npm_config_version: ${{ github.event.inputs.version || '' }}
 
       - name: Upload Windows artifacts
@@ -77,4 +78,3 @@ jobs:
           files: artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
