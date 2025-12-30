@@ -39,10 +39,12 @@ jobs:
 
       - name: Build Windows installer & portable
         run: |
-          npm run build:win:fast -- --config electron-builder-win-optimized.yml --win nsis portable
+          npm run build:win:fast -- --config electron-builder-win-optimized.yml --win nsis portable --publish=never
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 可选：自定义版本号（用于手动触发时覆盖）
           npm_config_version: ${{ github.event.inputs.version || '' }}
+
 
 
       - name: Upload Windows artifacts
