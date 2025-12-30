@@ -41,7 +41,6 @@ jobs:
         run: |
           npx electron-builder --win nsis portable -c electron-builder-win-optimized.yml
         env:
-          # 可选：自定义版本号（用于手动触发时覆盖）
           npm_config_version: ${{ github.event.inputs.version || '' }}
 
       - name: Upload Windows artifacts
@@ -78,3 +77,4 @@ jobs:
           files: artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
